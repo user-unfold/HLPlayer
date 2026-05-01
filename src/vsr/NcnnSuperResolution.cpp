@@ -2,6 +2,7 @@
 
 #include "net.h"
 #include "mat.h"
+#include "gpu.h"
 
 #include <algorithm>
 #include <string>
@@ -35,6 +36,13 @@ Result<void> NcnnSuperResolution::initialize() {
     }
 
     net_ = new ncnn::Net();
+
+    net_->opt.use_vulkan_compute = true;
+    if (config_.vulkanDeviceIndex >= 0) {
+        net_->set_vulkan_device(config_.vulkanDeviceIndex);
+    } else {
+        net_->set_vulkan_device(ncnn::get_default_gpu_index());
+    }
 
     const std::string paramPath = config_.modelPath + ".param";
     const std::string binPath   = config_.modelPath + ".bin";
@@ -97,7 +105,7 @@ Result<GpuFrame> NcnnSuperResolution::process(const GpuFrame& frame) {
         ncnn::Extractor ex = net_->create_extractor();
         ex.set_light_mode(true);
 
-        ex.input("input", *inputMat);
+        ex.input("data", *inputMat);
 
         int ret = ex.extract("output", outputMat);
         if (ret != 0) {

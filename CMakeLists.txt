@@ -116,7 +116,7 @@ if(BUILD_VSR)
     set(_SAVE_CMAKE_CXX_STANDARD_REQUIRED "${CMAKE_CXX_STANDARD_REQUIRED}")
 
     # Pre-set NCNN options as CACHE variables before add_subdirectory
-    set(NCNN_VULKAN OFF CACHE BOOL "Disable Vulkan for CPU-only build" FORCE)
+    set(NCNN_VULKAN ON CACHE BOOL "Enable Vulkan GPU acceleration" FORCE)
     set(NCNN_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
     set(NCNN_BUILD_TESTS OFF CACHE BOOL "" FORCE)
     set(NCNN_PYTHON OFF CACHE BOOL "" FORCE)

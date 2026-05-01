@@ -583,7 +583,16 @@ void OfflineVSRBridge::startProcessing() {
 
 #ifdef HLPLAYER_VSR_ENABLED
         NcnnSRConfig vsrConfig;
-        vsrConfig.modelPath = "D:/HLPlayer/models/realesrgan-x2plus.ncnn";
+        {
+            std::string modelBase = "D:/HLPlayer/models/";
+            switch (scaleFactor) {
+                case 2: modelBase += "realesr-animevideov3-x2"; break;
+                case 3: modelBase += "realesr-animevideov3-x3"; break;
+                case 4: modelBase += "realesrgan-x4plus";       break;
+                default: modelBase += "realesr-animevideov3-x2"; break;
+            }
+            vsrConfig.modelPath = modelBase;
+        }
         vsrConfig.scaleFactor = scaleFactor;
         vsrConfig.vramBudgetManager = impl_->vramManager;
 
