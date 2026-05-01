@@ -1,0 +1,45 @@
+# Build directories
+build/
+build_*/
+.cache/
+
+# IDE / editor
+.vs/
+.vscode/
+*.user
+*.suo
+*.sln
+*.vcxproj*
+CMakeSettings.json
+
+# Sisyphus / Claude agent
+.sisyphus/
+.claude/
+
+# Third-party deps with their own git repos
+ffmpeg/
+mpv/
+Testing/
+
+# Windows special files
+nul
+
+# Compiled objects
+*.o
+*.obj
+*.lib
+*.a
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+
+# CMake generated
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# OS
+Thumbs.db
+.DS_Store

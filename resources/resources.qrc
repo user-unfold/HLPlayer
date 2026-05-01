@@ -1,0 +1,21 @@
+<RCC>
+    <qresource prefix="/">
+        <file>icons/PlayOrPauseBtn.png</file>
+        <file>icons/stopBtn.png</file>
+        <file>icons/forwardBtn.png</file>
+        <file>icons/backwardBtn.png</file>
+        <file>icons/speedBtn.png</file>
+        <file>icons/playlistBtn.png</file>
+        <file>icons/volumnButton.png</file>
+        <file>icons/player_icon.png</file>
+    </qresource>
+    <qresource prefix="/HLPlayer">
+        <file>qml/Main.qml</file>
+        <file>qml/ControlsBar.qml</file>
+        <file>qml/PlayerItem.qml</file>
+        <file>qml/OfflineVSRStudio.qml</file>
+        <file>qml/VSRParameterPanel.qml</file>
+        <file>qml/VSRPreviewArea.qml</file>
+        <file>qml/VSRStatusBar.qml</file>
+    </qresource>
+</RCC>
