@@ -22,7 +22,8 @@ enum class EventType {
     Error,
     BufferLevelChanged,
     LatencyMeasured,
-    ResolutionChanged
+    ResolutionChanged,
+    ReconnectStateChanged
 };
 
 struct StateChangedPayload {
@@ -50,12 +51,19 @@ struct ResolutionPayload {
     uint32_t height;
 };
 
+struct ReconnectStateChangedPayload {
+    int attempt;
+    int delaySeconds;
+    std::string state;
+};
+
 using EventPayload = std::variant<
     StateChangedPayload,
     ErrorPayload,
     BufferLevelPayload,
     LatencyPayload,
-    ResolutionPayload>;
+    ResolutionPayload,
+    ReconnectStateChangedPayload>;
 
 struct Event {
     EventType type;

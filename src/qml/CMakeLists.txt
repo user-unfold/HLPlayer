@@ -83,6 +83,7 @@ target_link_libraries(hlplayer_qml
         hlplayer_core
         hlplayer_render
         hlplayer_extractor
+        hlplayer_subtitle
     PRIVATE
         spdlog::spdlog
         nlohmann_json::nlohmann_json

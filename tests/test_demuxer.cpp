@@ -70,7 +70,7 @@ TEST_CASE("DemuxerConfig default values target low-latency live", "[demuxer][con
     hlplayer::DemuxerConfig config;
 
     CHECK(config.format == "auto");
-    CHECK(config.lowLatency == true);
+    CHECK(config.lowLatency == false);
     CHECK(config.bufferDurationMs == 0);
     CHECK(config.probeDurationMs == 500000);
     CHECK(config.noBuffer == true);

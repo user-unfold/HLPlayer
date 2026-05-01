@@ -10,184 +10,149 @@ ApplicationWindow {
     height: 720
     visible: true
     title: currentTitle ? "HLPlayer - " + currentTitle : "HLPlayer"
-    color: ThemeManager.surface
+    color: ThemeManager.bgMain
+    flags: Qt.FramelessWindowHint | Qt.Window
 
     property string currentTitle: ""
     property bool controlsVisible: true
     property real playbackSpeed: player.playbackRate
-    property bool playlistVisible: true
+    property bool playlistVisible: false
     property real previousVolume: 1.0
     property bool isMuted: player.volume === 0
     property real pendingSeekValue: -1
+    property bool streamOsdVisible: true
+    property bool seeking: false
+
+    function isNetworkSource() {
+        if (!player.source || player.source === "") return false
+        var protocols = ["rtsp://", "rtmp://", "rtmps://", "http://", "https://", "udp://", "rtp://"]
+        return protocols.some(function(p) { return player.source.startsWith(p) })
+    }
 
     readonly property int space1: 8
     readonly property int space2: 16
     readonly property int space3: 24
 
     onPlaybackSpeedChanged: {
-        showOsd("Speed: " + playbackSpeed.toFixed(2) + "x");
+        osdOverlay.message = playbackSpeed.toFixed(1) + "\u00D7"
+        osdOverlay.iconText = ""
+        osdOverlay.show()
     }
 
     Timer {
         id: hideControlsTimer
         interval: 3000
         repeat: false
-        onTriggered: {
-            if (root.visibility === Window.FullScreen) {
-                root.controlsVisible = false;
-            }
-        }
+        onTriggered: root.controlsVisible = false
+    }
+
+    Timer {
+        id: seekTimeout
+        interval: 2000
+        repeat: false
+        onTriggered: root.seeking = false
     }
 
     function resetHideTimer() {
-        root.controlsVisible = true;
-        if (root.visibility === Window.FullScreen) {
-            hideControlsTimer.restart();
-        }
+        root.controlsVisible = true
+        hideControlsTimer.restart()
     }
 
     MouseArea {
+        id: hoverTracker
         anchors.fill: parent
         hoverEnabled: true
         acceptedButtons: Qt.NoButton
         onPositionChanged: resetHideTimer()
     }
 
-    Shortcut {
-        sequence: "Escape"
-        enabled: root.visibility === Window.FullScreen
-        onActivated: {
-            root.showNormal();
-            root.controlsVisible = true;
-            hideControlsTimer.stop();
-        }
-    }
-
+    Shortcut { sequence: "Escape"; enabled: root.visibility === Window.FullScreen; onActivated: { root.showNormal(); root.controlsVisible = true; hideControlsTimer.stop() } }
     Shortcut { sequence: "Space"; onActivated: togglePlayPause() }
-    Shortcut {
-        sequence: "Left"
-        onActivated: {
-            if (!canSeek()) return;
-            player.seek(Math.max(0, player.position - 5));
-            showOsd("-5s");
-        }
-    }
-    Shortcut {
-        sequence: "Right"
-        onActivated: {
-            if (!canSeek()) return;
-            player.seek(Math.min(player.duration, player.position + 5));
-            showOsd("+5s");
-        }
-    }
-    Shortcut { sequence: "Up"; onActivated: { player.volume = Math.min(1.0, player.volume + 0.05); showOsd("Vol: " + Math.round(player.volume*100) + "%"); } }
-    Shortcut { sequence: "Down"; onActivated: { player.volume = Math.max(0.0, player.volume - 0.05); showOsd("Vol: " + Math.round(player.volume*100) + "%"); } }
+    Shortcut { sequence: "Ctrl+U"; onActivated: urlDialog.open() }
+    Shortcut { sequence: "Ctrl+O"; onActivated: fileDialog.open() }
+    Shortcut { sequence: "Left"; onActivated: { if (canSeek()) { player.seek(Math.max(0, player.position - 10)); showOsd("\u25C0\u25C0 -10s") } } }
+    Shortcut { sequence: "Right"; onActivated: { if (canSeek()) { player.seek(Math.min(player.duration, player.position + 10)); showOsd("\u25B6\u25B6 +10s") } } }
+    Shortcut { sequence: "Up"; onActivated: { player.volume = Math.min(1.0, player.volume + 0.05); showOsdVol() } }
+    Shortcut { sequence: "Down"; onActivated: { player.volume = Math.max(0.0, player.volume - 0.05); showOsdVol() } }
     Shortcut { sequence: "F"; onActivated: toggleFullScreen() }
     Shortcut { sequence: "M"; onActivated: toggleMute() }
     Shortcut { sequence: "N"; onActivated: playNext() }
     Shortcut { sequence: "P"; onActivated: playPrev() }
-    Shortcut { sequence: "Delete"; onActivated: if (playlistView.currentIndex >= 0) playlist.remove(playlistView.currentIndex) }
+    Shortcut { sequence: "L"; onActivated: root.playlistVisible = !root.playlistVisible }
+    Shortcut { sequence: "I"; onActivated: videoInfoHud.visible = !videoInfoHud.visible }
+    Shortcut { sequence: "G"; onActivated: jumpDialog.open() }
+    Shortcut { sequence: "Delete"; onActivated: { if (playlistView.currentIndex >= 0) playlist.remove(playlistView.currentIndex) } }
 
-    function hasPlayableSource() {
-        return player.source && player.source !== "";
-    }
-
-    function canSeek() {
-        return hasPlayableSource() && player.duration > 0;
-    }
+    function hasPlayableSource() { return player.source && player.source !== "" }
+    function canSeek() { return hasPlayableSource() && player.duration > 0 && !seeking }
 
     function togglePlayPause() {
-        if (!hasPlayableSource()) {
-            showOsd("No media loaded");
-            return;
-        }
-        if (player.isPlaying) { player.pause(); showOsd("Paused"); }
-        else { player.play(); showOsd("Playing"); }
+        if (!hasPlayableSource()) { showOsd("No media loaded"); return }
+        if (player.isPlaying) { player.pause(); showOsdDisplay("\u23F8", "Paused") }
+        else { player.play(); showOsdDisplay("\u25B6", "Playing") }
     }
     function toggleFullScreen() {
         if (root.visibility === Window.FullScreen) {
-            root.showNormal();
-            root.controlsVisible = true;
-            hideControlsTimer.stop();
+            root.showNormal()
+            root.controlsVisible = true
+            hideControlsTimer.stop()
         } else {
-            root.showFullScreen();
-            hideControlsTimer.restart();
+            root.playlistVisible = false
+            root.showFullScreen()
+            hideControlsTimer.restart()
         }
     }
     function toggleMute() {
-        if (player.volume > 0) {
-            previousVolume = player.volume;
-            player.volume = 0;
-            showOsd("Muted");
-        } else {
-            player.volume = previousVolume > 0 ? previousVolume : 1.0;
-            showOsd("Unmuted");
-        }
+        if (player.volume > 0) { previousVolume = player.volume; player.volume = 0; showOsd("\uD83D\uDD07 Muted") }
+        else { player.volume = previousVolume > 0 ? previousVolume : 1.0; showOsd("\uD83D\uDD0A Unmuted") }
     }
     function playNext() {
-        if (playlist.count === 0) return;
-        var next = playlist.currentIndex + 1;
-        if (next >= playlist.count) next = 0;
-        playlist.currentIndex = next;
-        loadAndPlay(next);
+        if (playlist.count === 0) return
+        var next = playlist.currentIndex + 1
+        if (next >= playlist.count) next = 0
+        playlist.currentIndex = next
+        loadAndPlay(next)
     }
     function playPrev() {
-        if (playlist.count === 0) return;
-        var prev = playlist.currentIndex - 1;
-        if (prev < 0) prev = playlist.count - 1;
-        playlist.currentIndex = prev;
-        loadAndPlay(prev);
-    }
-
-    function stateLabel(state) {
-        switch (state) {
-        case 0: return PlayerI18nContext.tr("Idle")
-        case 1: return PlayerI18nContext.tr("Opening")
-        case 2: return PlayerI18nContext.tr("Prepared")
-        case 3: return PlayerI18nContext.tr("Buffering")
-        case 4: return PlayerI18nContext.tr("Playing")
-        case 5: return PlayerI18nContext.tr("Paused")
-        case 6: return PlayerI18nContext.tr("Error")
-        case 7: return PlayerI18nContext.tr("End")
-        case 8: return PlayerI18nContext.tr("Device Lost")
-        default: return PlayerI18nContext.tr("Unknown")
-        }
+        if (playlist.count === 0) return
+        var prev = playlist.currentIndex - 1
+        if (prev < 0) prev = playlist.count - 1
+        playlist.currentIndex = prev
+        loadAndPlay(prev)
     }
 
     function formatTime(seconds) {
-        if (!isFinite(seconds) || seconds < 0) return "00:00";
-        var h = Math.floor(seconds / 3600);
-        var m = Math.floor((seconds % 3600) / 60);
-        var s = Math.floor(seconds % 60);
-        var res = "";
-        if (h > 0) {
-            res += (h < 10 ? "0" : "") + h + ":";
-        }
-        res += (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s;
-        return res;
+        if (!isFinite(seconds) || seconds < 0) return "00:00"
+        var h = Math.floor(seconds / 3600)
+        var m = Math.floor((seconds % 3600) / 60)
+        var s = Math.floor(seconds % 60)
+        var res = ""
+        if (h > 0) res += (h < 10 ? "0" : "") + h + ":"
+        res += (m < 10 ? "0" : "") + m + ":" + (s < 10 ? "0" : "") + s
+        return res
     }
 
-    function showOsd(text) {
-        osdText.text = text;
-        osdAnimation.stop();
-        osdRect.opacity = 0.8;
-        osdAnimation.start();
+    function showOsd(text) { showOsdDisplay("", text) }
+    function showOsdVol() { showOsdDisplay("\uD83D\uDD0A", "Vol: " + Math.round(player.volume * 100) + "%") }
+
+    function showOsdDisplay(icon, msg) {
+        osdOverlay.iconText = icon
+        osdOverlay.message = msg
+        osdOverlay.show()
     }
 
-    function showToast(text) {
-        toastText.text = text;
-        toastAnimation.stop();
-        toastRect.opacity = 0.9;
-        toastAnimation.start();
+    function showToast(msg) {
+        toastText.text = msg
+        toastAnimation.stop()
+        toastRect.opacity = 0.9
+        toastAnimation.start()
     }
 
-    Component.onCompleted: {
-        ThemeManager.theme = ThemeManager.Dark
-    }
+    Component.onCompleted: { ThemeManager.theme = ThemeManager.Dark }
+    Component.onDestruction: { if (recorder.recording) recorder.stop() }
 
-    PlaylistModel {
-        id: playlist
-    }
+    PlaylistModel { id: playlist }
+    StreamRecorderBridge { id: recorder }
 
     QMLPlayer {
         id: player
@@ -197,16 +162,8 @@ ApplicationWindow {
                 var h = player.videoHeight
                 var maxW = Screen.desktopAvailableWidth * 0.8
                 var maxH = Screen.desktopAvailableHeight * 0.75
-                if (w > maxW) {
-                    var scale = maxW / w
-                    w = Math.round(w * scale)
-                    h = Math.round(h * scale)
-                }
-                if (h > maxH) {
-                    var scale2 = maxH / h
-                    w = Math.round(w * scale2)
-                    h = Math.round(h * scale2)
-                }
+                if (w > maxW) { var s = maxW / w; w = Math.round(w * s); h = Math.round(h * s) }
+                if (h > maxH) { var s2 = maxH / h; w = Math.round(w * s2); h = Math.round(h * s2) }
                 videoArea.implicitWidth = Math.max(w, 320)
                 videoArea.implicitHeight = Math.max(h, 240)
             }
@@ -214,13 +171,15 @@ ApplicationWindow {
         onSourceChanged: {
             if (source) {
                 var path = source
-                if (path.startsWith("file:///"))
-                    path = decodeURIComponent(path.substring(8).replace(/\\/g, "/"))
+                if (path.startsWith("file:///")) path = decodeURIComponent(path.substring(8).replace(/\\/g, "/"))
                 root.currentTitle = path.split("/").pop()
             }
         }
-        onErrorChanged: {
-            if (error !== "") showToast(error);
+        onErrorChanged: { if (error !== "") showToast(error) }
+        onStateChanged: {
+            if (player.state === 4 || player.state === 5) {
+                root.seeking = false
+            }
         }
     }
 
@@ -228,17 +187,17 @@ ApplicationWindow {
         id: fileDialog
         title: PlayerI18nContext.tr("Open Media File")
         nameFilters: [
-            "Media files (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.mp3 *.flac *.wav *.ogg *.aac *.m4a)",
+            "Common Media (*.mp4 *.mkv *.avi *.mov *.webm *.mp3 *.flac *.wav)",
+            "All Supported (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.ts *.m2ts *.mts *.3gp *.rmvb *.asf *.ogm *.m4v *.divx *.mpg *.mpeg *.mp3 *.flac *.wav *.ogg *.aac *.m4a *.opus *.wma *.ape *.tak *.mka *.srt *.ass *.ssa *.sub *.idx *.sup *.vtt *.m3u *.m3u8 *.pls *.mpd)",
+            "Video (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.ts *.m2ts *.mts *.3gp *.rmvb *.asf *.ogm *.m4v *.divx *.mpg *.mpeg)",
+            "Audio (*.mp3 *.flac *.wav *.ogg *.aac *.m4a *.opus *.wma *.ape *.tak *.mka)",
             "All files (*)"
         ]
         onAccepted: {
             var urls = []
             for (var i = 0; i < selectedFiles.length; i++) {
                 var raw = selectedFiles[i]
-                var localPath = ""
-                if (raw && raw.toLocalFile) localPath = raw.toLocalFile()
-                else if (raw && raw.toString) localPath = raw.toString()
-                else localPath = String(raw)
+                var localPath = raw && raw.toLocalFile ? raw.toLocalFile() : (raw && raw.toString ? raw.toString() : String(raw))
                 if (localPath !== "") urls.push(localPath)
             }
             if (urls.length === 0) return
@@ -248,771 +207,783 @@ ApplicationWindow {
         }
     }
 
+    OpenUrlDialog {
+        id: urlDialog
+        playlist: playlist
+        loadAndPlayFunction: loadAndPlay
+    }
+
     function loadAndPlay(index) {
         var url = playlist.getUrl(index)
         if (!url) return
-        var localUrl = url
-        if (!localUrl.startsWith("file://"))
-            localUrl = "file:///" + encodeURI(url.replace(/\\/g, "/"))
-        player.source = localUrl
+        var protocols = ["rtsp://", "rtmp://", "rtmps://", "http://", "https://", "udp://", "rtp://"]
+        var isNet = protocols.some(function(p) { return url.startsWith(p) })
+        var finalUrl = url
+        if (!isNet && !url.startsWith("file://")) finalUrl = "file:///" + encodeURI(url.replace(/\\/g, "/"))
+        player.source = finalUrl
         player.play()
+    }
+
+    TitleBar {
+        id: titleBar
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        windowTitle: root.currentTitle || "HLPlayer"
+        isFullScreen: root.visibility === Window.FullScreen
+        visible: root.visibility !== Window.FullScreen
+
+        onMinimizeClicked: root.showMinimized()
+        onMaximizeClicked: {
+            if (root.visibility === Window.Maximized) root.showNormal()
+            else root.showMaximized()
+        }
+        onCloseClicked: root.close()
     }
 
     RowLayout {
         anchors.fill: parent
+        anchors.topMargin: root.visibility === Window.FullScreen ? 0 : titleBar.height
         spacing: 0
 
         Rectangle {
+            id: videoContainer
             Layout.fillHeight: true
             Layout.fillWidth: true
             color: "#000000"
 
-            ColumnLayout {
+            Item {
+                id: videoArea
                 anchors.fill: parent
-                spacing: 0
 
-                Item {
-                    id: videoArea
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
+                VideoOutputItem {
+                    id: videoOutput
+                    anchors.fill: parent
+                    clip: true
+                    videoSink: player.videoSink
+                }
 
-                    VideoOutputItem {
-                        id: videoOutput
-                        anchors.fill: parent
-                        clip: true
-                        videoSink: player.videoSink
-                    }
-
-                    DropArea {
-                        anchors.fill: parent
-                        onDropped: (drop) => {
-                            if (drop.hasUrls) {
-                                var urls = [];
-                                for (var i = 0; i < drop.urls.length; i++) {
-                                    urls.push(drop.urls[i]);
-                                }
-                                playlist.addFiles(urls);
-                                playlist.currentIndex = playlist.count - urls.length;
-                                loadAndPlay(playlist.currentIndex);
-                            }
-                        }
-                    }
-
-                    Timer {
-                        id: clickTimer
-                        interval: 250
-                        repeat: false
-                        onTriggered: togglePlayPause()
-                    }
-
-                    MouseArea {
-                        anchors.fill: parent
-                        acceptedButtons: Qt.LeftButton | Qt.RightButton
-                        onDoubleClicked: {
-                            clickTimer.stop()
-                            toggleFullScreen()
-                        }
-                        onClicked: (mouse) => {
-                            if (mouse.button === Qt.RightButton) {
-                                contextMenu.popup()
-                            } else {
-                                clickTimer.start()
-                            }
-                        }
-                        onWheel: (wheel) => {
-                            if (wheel.modifiers & Qt.ControlModifier) {
-                                if (!canSeek()) return;
-                                var delta = wheel.angleDelta.y > 0 ? 5 : -5;
-                                player.seek(Math.max(0, Math.min(player.duration, player.position + delta)));
-                                showOsd((delta > 0 ? "+" : "") + delta + "s");
-                            } else {
-                                var vDelta = wheel.angleDelta.y > 0 ? 0.05 : -0.05;
-                                player.volume = Math.max(0.0, Math.min(1.0, player.volume + vDelta));
-                                showOsd("Vol: " + Math.round(player.volume*100) + "%");
-                            }
-                        }
-                    }
-
-                    Menu {
-                        id: contextMenu
-                        MenuItem { text: player.isPlaying ? "Pause" : "Play"; onTriggered: togglePlayPause() }
-                        Menu {
-                            title: "Speed"
-                            MenuItem { text: "0.5x"; onTriggered: player.playbackRate = 0.5 }
-                            MenuItem { text: "0.75x"; onTriggered: player.playbackRate = 0.75 }
-                            MenuItem { text: "1.0x"; onTriggered: player.playbackRate = 1.0 }
-                            MenuItem { text: "1.25x"; onTriggered: player.playbackRate = 1.25 }
-                            MenuItem { text: "1.5x"; onTriggered: player.playbackRate = 1.5 }
-                            MenuItem { text: "2.0x"; onTriggered: player.playbackRate = 2.0 }
-                        }
-                        MenuItem { text: root.isMuted ? "Unmute" : "Mute"; onTriggered: toggleMute() }
-                        MenuItem { text: root.visibility === Window.FullScreen ? "Exit Fullscreen" : "Fullscreen"; onTriggered: toggleFullScreen() }
-                        MenuSeparator {}
-                        MenuItem {
-                            text: {
-                                var info = "";
-                                if (player.videoWidth > 0)
-                                    info += player.videoWidth + "x" + player.videoHeight;
-                                if (player.fps > 0)
-                                    info += (info ? " | " : "") + player.fps.toFixed(1) + " fps";
-                                return info || "No media info";
-                            }
-                            enabled: false
-                        }
-                    }
-
-                    Rectangle {
-                        anchors.fill: parent
-                        color: "transparent"
-                        border.color: "#222222"
-                        border.width: 1
-                    }
-
-                    Text {
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        anchors.margins: 12
-                        text: root.currentTitle
-                        color: "#ffffff"
-                        font.pixelSize: 14
-                        font.family: "IBM Plex Sans"
-                        opacity: root.controlsVisible ? 0.8 : 0.0
-                        Behavior on opacity { NumberAnimation { duration: 200 } }
-                        visible: root.currentTitle !== ""
-                        style: Text.Outline
-                        styleColor: "#000000"
-                    }
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: PlayerI18nContext.tr("Drop files or click Open to play")
-                        color: "#666666"
-                        font.pixelSize: 18
-                        font.family: "IBM Plex Sans"
-                        visible: player.state === 0 && !root.currentTitle
-                    }
-
-                    BusyIndicator {
-                        anchors.centerIn: parent
-                        width: 48
-                        height: 48
-                        visible: player.state === 1 || player.state === 3 // Opening or Buffering
-                    }
-
-                    // C1: Mini progress bar visible when controls are hidden
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 3
-                        color: "#444444"
-                        visible: !root.controlsVisible && player.duration > 0
-                        z: 10
-                        Rectangle {
-                            width: parent.width * (player.duration > 0 ? player.position / player.duration : 0)
-                            height: parent.height
-                            color: ThemeManager.accentColor
+                DropArea {
+                    id: dropArea
+                    anchors.fill: parent
+                    onDropped: function(drop) {
+                        if (drop.hasUrls) {
+                            var urls = []
+                            for (var i = 0; i < drop.urls.length; i++) urls.push(drop.urls[i])
+                            playlist.addFiles(urls)
+                            playlist.currentIndex = playlist.count - urls.length
+                            loadAndPlay(playlist.currentIndex)
                         }
                     }
                 }
 
-                // C3: Gradient backdrop behind floating controls
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: root.controlsVisible ? 120 : 0
-                    opacity: root.controlsVisible ? 1.0 : 0.0
-                    visible: opacity > 0
-                    Behavior on Layout.preferredHeight { NumberAnimation { duration: 200 } }
-                    Behavior on opacity { NumberAnimation { duration: 200 } }
-                    gradient: Gradient {
-                        GradientStop { position: 0.0; color: "transparent" }
-                        GradientStop { position: 1.0; color: "#C0000000" }
+                MouseArea {
+                    id: videoMouseArea
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+                    hoverEnabled: true
+                    onDoubleClicked: { singleClickTimer.stop(); toggleFullScreen() }
+                    onClicked: function(mouse) {
+                        if (mouse.button === Qt.RightButton) contextMenu.popup()
+                        else if (mouse.button === Qt.MiddleButton) togglePlayPause()
+                        else singleClickTimer.start()
                     }
+                    onWheel: function(wheel) {
+                        var vDelta = wheel.angleDelta.y > 0 ? 0.05 : -0.05
+                        player.volume = Math.max(0.0, Math.min(1.0, player.volume + vDelta))
+                        showOsdVol()
+                    }
+                }
+
+                Timer {
+                    id: singleClickTimer
+                    interval: 250
+                    repeat: false
+                    onTriggered: togglePlayPause()
+                }
+
+                Column {
+                    anchors.centerIn: parent
+                    spacing: 16
+                    visible: player.state === 0 && !root.currentTitle
 
                     Rectangle {
-                        id: controlsBar
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        anchors.leftMargin: 16
-                        anchors.rightMargin: 16
-                        anchors.bottomMargin: 8
-                        height: 72
-                        radius: 8
-                        color: ThemeManager.surfaceVariant
-                        opacity: 0.95
+                        width: 400; height: 220
+                        radius: 16
+                        color: "transparent"
+                        border.color: dropArea.containsDrag ? "#8B5CF6" : Qt.rgba(1, 1, 1, 0.08)
+                        border.width: 2
+                        anchors.horizontalCenter: parent.horizontalCenter
 
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.leftMargin: 12
-                        anchors.rightMargin: 12
-                        spacing: 2
-
-                            Slider {
-                                id: progressSlider
-                                Layout.fillWidth: true
-                                Layout.topMargin: 2
-                                height: 20
-                                from: 0
-                                to: player.duration > 0 ? player.duration : 1
-
-                                // ── Seek state isolation ──────────────────────────
-                                // When the user is dragging the slider, or the backend
-                                // is still settling after a seek, break the value
-                                // binding so that stale backend PTS cannot overwrite
-                                // the user's chosen position.
-                                property bool _seekDragging: false
-
-                                Binding on value {
-                                    when: !progressSlider._seekDragging
-                                    value: player.position
-                                }
-
-                                onMoved: {
-                                    if (!canSeek()) return;
-                                    pendingSeekValue = value;
-                                }
-
-                                onPressedChanged: {
-                                    if (pressed) {
-                                        _seekDragging = true;
-                                        return;
-                                    }
-                                    // ── Released ──
-                                    if (!canSeek()) {
-                                        pendingSeekValue = -1;
-                                        _seekDragging = false;
-                                        return;
-                                    }
-                                    // Calculate target from pending seek (if dragged) or visual position (if clicked)
-                                    var target = pendingSeekValue >= 0 ? pendingSeekValue : valueAt(position);
-                                    pendingSeekValue = -1;
-                                    player.seek(target);
-                                    _seekDragging = false;
-                                }
-
-                            background: Rectangle {
-                                x: progressSlider.leftPadding
-                                y: progressSlider.topPadding + progressSlider.availableHeight / 2 - height / 2
-                                width: progressSlider.availableWidth
-                                height: 4
-                                radius: 2
-                                color: "#444444"
-                                Rectangle {
-                                    width: progressSlider.visualPosition * parent.width
-                                    height: parent.height
-                                    radius: 2
-                                    color: ThemeManager.accentColor
-                                }
-                            }
-                            handle: Rectangle {
-                                x: progressSlider.leftPadding + progressSlider.visualPosition * (progressSlider.availableWidth - width)
-                                y: progressSlider.topPadding + progressSlider.availableHeight / 2 - height / 2
-                                width: 12
-                                height: 12
-                                radius: 6
-                                color: progressSlider.pressed ? "#ffffff" : ThemeManager.accentColor
-                            }
-
-                            // C5: Hover time tooltip
-                            MouseArea {
-                                id: sliderHoverArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                acceptedButtons: Qt.NoButton
-                                property real hoverTime: {
-                                    if (!containsMouse || player.duration <= 0) return -1;
-                                    var fraction = (mouseX - progressSlider.leftPadding) / progressSlider.availableWidth;
-                                    fraction = Math.max(0, Math.min(1, fraction));
-                                    return fraction * player.duration;
-                                }
-                            }
-
-                            Rectangle {
-                                id: hoverTooltip
-                                visible: sliderHoverArea.containsMouse && sliderHoverArea.hoverTime >= 0
-                                x: {
-                                    var tipX = sliderHoverArea.mouseX - width / 2;
-                                    return Math.max(0, Math.min(tipX, progressSlider.width - width));
-                                }
-                                y: -height - 4
-                                width: hoverTimeText.implicitWidth + 12
-                                height: hoverTimeText.implicitHeight + 8
-                                radius: 4
-                                color: "#CC000000"
-
-                                Text {
-                                    id: hoverTimeText
-                                    anchors.centerIn: parent
-                                    text: formatTime(sliderHoverArea.hoverTime)
-                                    color: "#ffffff"
-                                    font.pixelSize: 11
-                                    font.family: "IBM Plex Sans"
-                                }
-                            }
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: 2
+                            radius: 14
+                            color: "transparent"
+                            border.color: dropArea.containsDrag ? "#A78BFA" : Qt.rgba(1, 1, 1, 0.04)
+                            border.width: 1
                         }
 
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: space1
+                        Column {
+                            anchors.centerIn: parent
+                            spacing: 12
 
-                            Button {
-                                id: prevBtn
-                                Layout.preferredWidth: 36
-                                Layout.preferredHeight: 36
-                                flat: true
-                                background: Rectangle {
-                                    radius: 18
-                                    color: prevBtn.hovered ? ThemeManager.accentColor : ThemeManager.onSurface
-                                    opacity: prevBtn.hovered ? 0.3 : 0.15
-                                }
-                                contentItem: Text {
-                                    anchors.centerIn: parent
-                                    text: "\u23EE" // ⏮
-                                    font.pixelSize: 14
-                                    color: ThemeManager.onSurface
-                                }
-                                onClicked: playPrev()
-                            }
-
-                            Button {
-                                id: playPauseBtn
-                                Layout.preferredWidth: 36
-                                Layout.preferredHeight: 36
-                                flat: true
-                                background: Rectangle {
-                                    radius: 18
-                                    color: playPauseBtn.hovered ? ThemeManager.accentColor : ThemeManager.onSurface
-                                    opacity: playPauseBtn.hovered ? 0.3 : 0.15
-                                }
-                                contentItem: Text {
-                                    anchors.centerIn: parent
-                                    text: player.isPlaying ? "\u23F8" : "\u25B6"
-                                    font.pixelSize: 16
-                                    color: ThemeManager.onSurface
-                                }
-                                onClicked: togglePlayPause()
-                            }
-
-                            Button {
-                                id: nextBtn
-                                Layout.preferredWidth: 36
-                                Layout.preferredHeight: 36
-                                flat: true
-                                background: Rectangle {
-                                    radius: 18
-                                    color: nextBtn.hovered ? ThemeManager.accentColor : ThemeManager.onSurface
-                                    opacity: nextBtn.hovered ? 0.3 : 0.15
-                                }
-                                contentItem: Text {
-                                    anchors.centerIn: parent
-                                    text: "\u23ED" // ⏭
-                                    font.pixelSize: 14
-                                    color: ThemeManager.onSurface
-                                }
-                                onClicked: playNext()
+                            Text {
+                                text: "\u25B6"
+                                font.pixelSize: 48
+                                color: dropArea.containsDrag ? "#8B5CF6" : "#444444"
+                                anchors.horizontalCenter: parent.horizontalCenter
                             }
 
                             Text {
-                                text: formatTime(player.position) + " / " + formatTime(player.duration)
+                                text: dropArea.containsDrag
+                                      ? "\uD83D\uDCE5 松开以打开"
+                                      : PlayerI18nContext.tr("\u62D6\u5165\u6587\u4EF6\u6216\u6309 Ctrl+O \u6253\u5F00")
+                                font.pixelSize: 16
+                                font.family: "IBM Plex Sans"
+                                color: dropArea.containsDrag ? "#8B5CF6" : "#666666"
+                                anchors.horizontalCenter: parent.horizontalCenter
+                            }
+
+                            Text {
+                                text: PlayerI18nContext.tr("\u652F\u6301 MP4 / MKV / AVI / RTSP \u7B49\u683C\u5F0F")
                                 font.pixelSize: 12
                                 font.family: "IBM Plex Sans"
-                                color: ThemeManager.onSurface
-                                opacity: 0.7
+                                color: "#444444"
+                                anchors.horizontalCenter: parent.horizontalCenter
                             }
 
-                            Item { Layout.fillWidth: true }
-
                             Button {
-                                id: speedBtn
+                                id: openFileBtn
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                implicitWidth: 140; implicitHeight: 40
                                 flat: true
-                                Layout.preferredWidth: 48
-                                Layout.preferredHeight: 36
-                                onClicked: speedPopup.open()
 
                                 background: Rectangle {
-                                    radius: 4
-                                    color: speedBtn.hovered ? ThemeManager.surface : "transparent"
+                                    radius: 8
+                                    color: openFileBtn.hovered ? "#A78BFA" : "#8B5CF6"
+                                    Behavior on color { ColorAnimation { duration: 100 } }
                                 }
 
                                 contentItem: Text {
-                                    anchors.centerIn: parent
-                                    text: player.playbackRate.toFixed(2) + "x"
-                                    font.pixelSize: 12
-                                    font.family: "IBM Plex Sans"
-                                    color: Math.abs(player.playbackRate - 1.0) > 0.01
-                                           ? ThemeManager.accentColor
-                                           : ThemeManager.onSurface
+                                    text: PlayerI18nContext.tr("\u6253\u5F00\u6587\u4EF6")
+                                    font.pixelSize: 14; font.bold: true
+                                    color: "#FFFFFF"
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
                                 }
 
-                                Popup {
-                                    id: speedPopup
-                                    x: speedBtn.width / 2 - width / 2
-                                    y: -height - 4
-                                    width: 80
-                                    padding: 4
+                                onClicked: fileDialog.open()
 
-                                    background: Rectangle {
-                                        color: ThemeManager.surfaceVariant
-                                        radius: 6
-                                        border.color: ThemeManager.onSurface
-                                        border.width: 0.5
-                                        opacity: 0.95
-                                    }
-
-                                    contentItem: Column {
-                                        spacing: 0
-                                        Repeater {
-                                            model: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
-                                            delegate: Rectangle {
-                                                width: 72
-                                                height: 28
-                                                radius: 4
-                                                color: {
-                                                    var isActive = Math.abs(player.playbackRate - modelData) < 0.01;
-                                                    if (isActive) return ThemeManager.accentColor;
-                                                    if (speedItemMa.containsMouse) return ThemeManager.surface;
-                                                    return "transparent";
-                                                }
-                                                opacity: Math.abs(player.playbackRate - modelData) < 0.01 ? 0.3 : 1.0
-
-                                                Text {
-                                                    anchors.centerIn: parent
-                                                    text: modelData.toFixed(2) + "x"
-                                                    font.pixelSize: 12
-                                                    color: ThemeManager.onSurface
-                                                    font.bold: Math.abs(player.playbackRate - modelData) < 0.01
-                                                }
-
-                                                MouseArea {
-                                                    id: speedItemMa
-                                                    anchors.fill: parent
-                                                    hoverEnabled: true
-                                                    onClicked: {
-                                                        player.playbackRate = modelData;
-                                                        speedPopup.close();
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
+                                transform: Translate {
+                                    y: openFileBtn.hovered ? -2 : 0
+                                    Behavior on y { NumberAnimation { duration: 100 } }
                                 }
-                            }
-
-                            Button {
-                                flat: true
-                                Layout.preferredWidth: 24
-                                onClicked: toggleMute()
-                                contentItem: Text {
-                                    anchors.centerIn: parent
-                                    text: root.isMuted ? "\uD83D\uDD07" : "\uD83D\uDD0A" // Using text symbols instead of raw emojis if possible, or simple Unicode
-                                    color: ThemeManager.onSurface
-                                }
-                            }
-
-                            Slider {
-                                id: volumeSlider
-                                Layout.preferredWidth: 80
-                                height: 20
-                                from: 0.0
-                                to: 1.0
-                                value: player.volume
-                                onMoved: {
-                                    player.volume = value;
-                                    if(value > 0) previousVolume = value;
-                                }
-                                background: Rectangle {
-                                    y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2
-                                    width: volumeSlider.availableWidth
-                                    height: 3
-                                    radius: 1
-                                    color: "#444444"
-                                    Rectangle {
-                                        width: volumeSlider.visualPosition * parent.width
-                                        height: parent.height
-                                        radius: 1
-                                        color: ThemeManager.primary
-                                    }
-                                }
-                                handle: Rectangle {
-                                    x: volumeSlider.leftPadding + volumeSlider.visualPosition * (volumeSlider.availableWidth - width)
-                                    y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2
-                                    width: 10
-                                    height: 10
-                                    radius: 5
-                                    color: ThemeManager.primary
-                                }
-                            }
-
-                            Button {
-                                flat: true
-                                Layout.preferredWidth: 32
-                                contentItem: Text {
-                                    anchors.centerIn: parent
-                                    text: "\u2261" // Playlist icon ≡
-                                    color: ThemeManager.onSurface
-                                }
-                                onClicked: root.playlistVisible = !root.playlistVisible
-                            }
-
-                            Button {
-                                id: vsrStudioBtn
-                                flat: true
-                                Layout.preferredWidth: 32
-                                Layout.preferredHeight: 36
-                                background: Rectangle {
-                                    radius: 4
-                                    color: vsrStudioBtn.hovered ? ThemeManager.surface : "transparent"
-                                }
-                                contentItem: Text {
-                                    anchors.centerIn: parent
-                                    text: "VSR"
-                                    font.pixelSize: 10
-                                    font.bold: true
-                                    color: ThemeManager.accentColor
-                                }
-onClicked: {
-    console.log("VSR: Creating OfflineVSRStudio component...");
-    var component = Qt.createComponent("../OfflineVSRStudio.qml");
-    if (component.status === Component.Ready) {
-        console.log("VSR: Component ready, creating window...");
-        var win = component.createObject(root);
-        if (win) {
-            console.log("VSR: Window created successfully, showing...");
-            win.show();
-        } else {
-            console.error("VSR: Failed to create window from component");
-            showToast("Failed to open VSR Studio: Window creation failed");
-        }
-    } else {
-        console.error("VSR: Component not ready. Status:", component.status, "Error:", component.errorString());
-        showToast("Failed to open VSR Studio: " + component.errorString());
-    }
-}
                             }
                         }
                     }
-                    } // controlsBar Rectangle
-                } // gradient backdrop Rectangle
-            }
-        }
+                }
 
-        Rectangle {
-            id: playlistPanel
-            Layout.preferredWidth: root.playlistVisible ? 280 : 0
-            Layout.fillHeight: true
-            color: ThemeManager.surfaceVariant
-            opacity: 0.95
-            visible: Layout.preferredWidth > 0
-            clip: true
-            Behavior on Layout.preferredWidth { NumberAnimation { duration: 250; easing.type: Easing.InOutQuad } }
+                BusyIndicator {
+                    anchors.centerIn: parent
+                    width: 48; height: 48
+                    visible: player.state === 1 || player.state === 3
+                }
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 0
-                spacing: 0
-                width: 280
+                StreamOSD {
+                    player: player
+                    visible: root.streamOsdVisible && isNetworkSource()
+                }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 48
-                    Layout.leftMargin: 12
-                    Layout.rightMargin: 8
+                Rectangle {
+                    id: osdOverlay
+                    anchors.centerIn: parent
+                    width: osdRow.implicitWidth + 32
+                    height: osdRow.implicitHeight + 20
+                    color: Qt.rgba(0, 0, 0, 0.75)
+                    radius: 10
+                    opacity: 0; visible: opacity > 0
+                    z: 50
 
-                    Text {
-                        text: PlayerI18nContext.tr("Playlist")
-                        font.pixelSize: 15
-                        font.bold: true
-                        font.family: "IBM Plex Sans"
-                        color: ThemeManager.onSurface
-                    }
+                    property string iconText: ""
+                    property string message: ""
 
-                    Item { Layout.fillWidth: true }
-
-                    Text {
-                        text: playlist.count
-                        font.pixelSize: 12
-                        color: ThemeManager.onSurface
-                        opacity: 0.5
-                    }
-
-                    Button {
-                        Layout.preferredWidth: 32
-                        Layout.preferredHeight: 32
-                        flat: true
-                        background: Rectangle { radius: 6; color: parent.hovered ? ThemeManager.surface : "transparent" }
-                        contentItem: Text {
-                            anchors.centerIn: parent
-                            text: "+"
-                            font.pixelSize: 16
-                            font.bold: true
-                            color: ThemeManager.accentColor
+                    Row {
+                        id: osdRow
+                        anchors.centerIn: parent
+                        spacing: 10
+                        Text {
+                            text: osdOverlay.iconText
+                            font.pixelSize: 22; color: "#ffffff"
+                            visible: osdOverlay.iconText !== ""
                         }
-                        onClicked: fileDialog.open()
+                        Text {
+                            text: osdOverlay.message
+                            font.pixelSize: 16; font.bold: true; color: "#ffffff"
+                        }
                     }
 
-                    Button {
-                        Layout.preferredWidth: 32
-                        Layout.preferredHeight: 32
-                        flat: true
-                        visible: playlist.count > 0
-                        background: Rectangle { radius: 6; color: parent.hovered ? ThemeManager.surface : "transparent" }
-                        contentItem: Text {
-                            anchors.centerIn: parent
-                            text: "\u2715"
-                            font.pixelSize: 12
-                            color: ThemeManager.errorColor
-                        }
-                        onClicked: playlist.clear()
+                    function show() {
+                        opacity = 0.85
+                        osdFadeOut.stop(); osdDismissTimer.restart()
+                    }
+
+                    NumberAnimation {
+                        id: osdFadeOut
+                        target: osdOverlay; property: "opacity"; to: 0; duration: 400
+                        easing.type: Easing.InCubic
+                    }
+
+                    Timer {
+                        id: osdDismissTimer
+                        interval: 1500
+                        onTriggered: osdFadeOut.start()
                     }
                 }
 
                 Rectangle {
-                    Layout.fillWidth: true
-                    height: 1
-                    color: ThemeManager.onSurface
-                    opacity: 0.1
-                }
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: 12
+                    visible: recorder.recording
+                    radius: 4; color: Qt.rgba(0, 0, 0, 0.8); height: 28; width: recRow.implicitWidth + 20
 
-                ListView {
-                    id: playlistView
-                    Layout.fillWidth: true
-                    Layout.fillHeight: true
-                    clip: true
-                    model: playlist
-
-                    delegate: Rectangle {
-                        width: playlistView.width
-                        height: 44
-                        color: {
-                            if (model.isPlaying) return ThemeManager.accentColor
-                            if (mouseArea.containsMouse) return ThemeManager.surface
-                            return "transparent"
-                        }
-                        opacity: model.isPlaying ? 0.15 : 1.0
+                    RowLayout {
+                        id: recRow
+                        anchors.centerIn: parent
+                        spacing: 8
 
                         Rectangle {
-                            visible: model.isPlaying
-                            width: 3
-                            height: parent.height
-                            color: ThemeManager.accentColor
-                        }
-
-                        Text {
-                            anchors.fill: parent
-                            anchors.leftMargin: 16
-                            anchors.rightMargin: 8
-                            anchors.topMargin: 4
-                            text: model.title
-                            font.pixelSize: 13
-                            font.family: "IBM Plex Sans"
-                            color: model.isPlaying ? ThemeManager.accentColor : ThemeManager.onSurface
-                            elide: Text.ElideRight
-                            verticalAlignment: Text.AlignVCenter
-                        }
-
-                        Text {
-                            anchors.right: parent.right
-                            anchors.rightMargin: 8
-                            anchors.bottom: parent.bottom
-                            anchors.bottomMargin: 4
-                            text: model.isPlaying ? stateLabel(player.state) : ""
-                            font.pixelSize: 10
-                            color: ThemeManager.accentColor
-                            opacity: 0.7
-                        }
-
-                        MouseArea {
-                            id: mouseArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onDoubleClicked: {
-                                playlist.currentIndex = index
-                                loadAndPlay(index)
+                            width: 10; height: 10; radius: 5; color: "#ff0000"
+                            SequentialAnimation on opacity {
+                                running: recorder.recording; loops: Animation.Infinite
+                                NumberAnimation { to: 0.3; duration: 500 }
+                                NumberAnimation { to: 1.0; duration: 500 }
                             }
                         }
+                        Text { text: "REC"; font.pixelSize: 12; font.bold: true; color: "#ffffff"; font.family: "IBM Plex Sans" }
+                        Text { text: formatTime(recorder.duration); font.pixelSize: 12; color: "#ffffff"; font.family: "IBM Plex Sans" }
+                    }
+                }
 
-                        Rectangle {
-                            anchors.bottom: parent.bottom
-                            width: parent.width
-                            height: 1
-                            color: ThemeManager.onSurface
-                            opacity: 0.05
+                VideoInfoHUD {
+                    id: videoInfoHud
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.margins: 16
+                    visible: false
+                    player: player
+                    formatTimeFunc: formatTime
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 3
+                    color: Qt.rgba(1, 1, 1, 0.15)
+                    visible: !root.controlsVisible && player.duration > 0
+                    z: 10
+
+                    Rectangle {
+                        width: parent.width * (player.duration > 0 ? player.position / player.duration : 0)
+                        height: parent.height
+                        color: ThemeManager.accentColor
+                    }
+                }
+            }
+
+            Rectangle {
+                id: controlsOverlay
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                height: root.controlsVisible ? 100 : 0
+                opacity: root.controlsVisible ? 1.0 : 0.0
+                Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
+                Behavior on opacity { NumberAnimation { duration: 200 } }
+
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "transparent" }
+                    GradientStop { position: 0.4; color: Qt.rgba(0, 0, 0, 0.75) }
+                    GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.95) }
+                }
+
+                ColumnLayout {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.leftMargin: 8
+                    anchors.rightMargin: 8
+                    anchors.bottomMargin: 6
+                    spacing: 0
+
+                    ProgressBar {
+                        id: progressBar
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 24
+                        position: player.position
+                        duration: player.duration
+                        seekEnabled: canSeek()
+
+                        onSeekRequested: function(target) {
+                            if (root.seeking) return
+                            root.seeking = true
+                            player.seek(target)
+                            showOsd("Seeking...")
+                            seekTimeout.restart()
+                        }
+                        onHoverTimeChanged: function(t) {
+                            hoverTooltip.visible = t >= 0
+                            if (t >= 0) {
+                                hoverTimeText.text = formatTime(t)
+                                var frac = t / Math.max(player.duration, 1)
+                                var pt = progressBar.mapToItem(controlsOverlay, frac * progressBar.width, 0)
+                                hoverTooltip.x = Math.max(0, Math.min(pt.x - hoverTooltip.width / 2,
+                                    controlsOverlay.width - hoverTooltip.width))
+                            }
                         }
                     }
 
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Layout.topMargin: 4
+                        spacing: 4
+
+                        IconButton {
+                            iconText: "\u23EE"
+                            iconSize: 16; buttonSize: 34
+                            customColor: "#CCCCCC"
+                            onClicked: playPrev()
+                        }
+
+                        IconButton {
+                            id: playPauseBtn
+                            iconText: player.isPlaying ? "\u23F8" : "\u25B6"
+                            iconSize: 20; buttonSize: 44
+                            isAccent: true
+                            onClicked: togglePlayPause()
+
+                            scale: 1.0
+                            Behavior on scale { NumberAnimation { duration: 100 } }
+                            Connections {
+                                target: player
+                                function onIsPlayingChanged() { playPauseBtn.scale = 0.8; playPauseBtn.scale = 1.0 }
+                            }
+                        }
+
+                        IconButton {
+                            iconText: "\u23ED"
+                            iconSize: 16; buttonSize: 34
+                            customColor: "#CCCCCC"
+                            onClicked: playNext()
+                        }
+
+                        IconButton {
+                            iconText: "\u25A0"
+                            iconSize: 12; buttonSize: 34
+                            customColor: "#CCCCCC"
+                            onClicked: { player.stop(); showOsd("Stopped") }
+                        }
+
+                        Item { width: 8; height: 1 }
+
+                        IconButton {
+                            id: muteBtn
+                            iconText: {
+                                if (player.volume === 0) return "\uD83D\uDD07"
+                                if (player.volume < 0.3) return "\uD83D\uDD08"
+                                if (player.volume < 0.7) return "\uD83D\uDD09"
+                                return "\uD83D\uDD0A"
+                            }
+                            iconSize: 16; buttonSize: 34
+                            customColor: "#CCCCCC"
+                            onClicked: toggleMute()
+                        }
+
+                        Slider {
+                            id: volumeSlider
+                            Layout.preferredWidth: 80
+                            implicitHeight: 24
+                            from: 0; to: 1
+                            value: player.volume
+
+                            background: Rectangle {
+                                y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2
+                                width: volumeSlider.availableWidth; height: 4; radius: 2
+                                color: Qt.rgba(1, 1, 1, 0.12)
+                                Rectangle {
+                                    width: volumeSlider.visualPosition * parent.width
+                                    height: parent.height; radius: 2
+                                    color: "#8B5CF6"
+                                }
+                            }
+                            handle: Rectangle {
+                                x: volumeSlider.leftPadding + volumeSlider.visualPosition * (volumeSlider.availableWidth - width)
+                                y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2
+                                width: 12; height: 12; radius: 6
+                                color: "#FFFFFF"; border.color: "#8B5CF6"; border.width: 1
+                            }
+                            onMoved: { player.volume = value; if (value > 0) previousVolume = value }
+                        }
+
+                        Text {
+                            text: formatTime(player.position)
+                            font.pixelSize: 12; font.family: "IBM Plex Sans"
+                            color: "#FFFFFF"
+                        }
+                        Text {
+                            text: " / "
+                            font.pixelSize: 12; font.family: "IBM Plex Sans"
+                            color: "#888888"
+                        }
+                        Text {
+                            text: formatTime(player.duration)
+                            font.pixelSize: 12; font.family: "IBM Plex Sans"
+                            color: "#888888"
+                        }
+
+                        Item { width: 8; height: 1 }
+                        Item { Layout.fillWidth: true }
+
+                        Button {
+                            id: speedBtn
+                            flat: true
+                            Layout.preferredWidth: 48; Layout.preferredHeight: 30
+
+                            ToolTip {
+                                visible: speedHover.containsMouse
+                                text: "\u901F\u5EA6 (" + player.playbackRate.toFixed(1) + "\u00D7)"
+                                delay: 500
+                            }
+
+                            MouseArea {
+                                id: speedHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
+
+                            background: Rectangle {
+                                radius: 6
+                                color: speedBtn.hovered ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                                Behavior on color { ColorAnimation { duration: 150 } }
+                            }
+                            contentItem: Text {
+                                text: player.playbackRate.toFixed(1) + "\u00D7"
+                                font.pixelSize: 12; font.family: "IBM Plex Sans"
+                                color: Math.abs(player.playbackRate - 1.0) > 0.01 ? "#8B5CF6" : "#CCCCCC"
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            onClicked: speedPopup.open()
+                        }
+
+                        Popup {
+                            id: speedPopup
+                            x: speedBtn.x + speedBtn.width / 2 - width / 2
+                            y: -height - 8
+                            width: 80; padding: 6
+                            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+                            background: Rectangle {
+                                color: "#1E1E1E"; radius: 10
+                                border.color: "#2A2A2A"; border.width: 0.5
+                            }
+
+                            contentItem: Column {
+                                spacing: 2
+                                Repeater {
+                                    model: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
+                                    delegate: Rectangle {
+                                        width: 68; height: 30; radius: 6
+                                        color: {
+                                            if (Math.abs(player.playbackRate - modelData) < 0.005) return "#8B5CF6"
+                                            if (siMa.containsMouse) return Qt.rgba(1, 1, 1, 0.08)
+                                            return "transparent"
+                                        }
+                                        opacity: Math.abs(player.playbackRate - modelData) < 0.005 ? 0.2 : 1.0
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: modelData.toFixed(1) + "\u00D7"
+                                            font.pixelSize: 12
+                                            color: Math.abs(player.playbackRate - modelData) < 0.005 ? "#8B5CF6" : "#CCCCCC"
+                                            font.bold: Math.abs(player.playbackRate - modelData) < 0.005
+                                        }
+
+                                        MouseArea {
+                                            id: siMa
+                                            anchors.fill: parent; hoverEnabled: true
+                                            onClicked: { player.playbackRate = modelData; speedPopup.close() }
+        }
+    }
+                                }
+                            }
+                        }
+
+                        IconButton {
+                            iconText: "CC"
+                            iconSize: 11; buttonSize: 34
+                            customColor: player.hasSubtitles && player.subtitleVisible ? "#8B5CF6" : "#CCCCCC"
+
+                            ToolTip {
+                                visible: subHover.containsMouse
+                                text: "\u5B57\u5E55 (Ctrl+S)"
+                                delay: 500
+                            }
+
+                            MouseArea {
+                                id: subHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
+
+                            onClicked: {
+                                if (player.hasSubtitles) {
+                                    player.toggleSubtitles()
+                                    showOsd(player.subtitleVisible ? "Subtitles: ON" : "Subtitles: OFF")
+                                }
+                            }
+                        }
+
+                        IconButton {
+                            iconText: "\uD83D\uDCF7"
+                            iconSize: 18; buttonSize: 34
+                            customColor: "#CCCCCC"
+
+                            ToolTip {
+                                visible: scHover.containsMouse
+                                text: "\u622A\u56FE (Ctrl+S)"
+                                delay: 500
+                            }
+
+                            MouseArea {
+                                id: scHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
+
+                            onClicked: { showOsd("\uD83D\uDCF7 Screenshot shortcut") }
+                        }
+
+                        IconButton {
+                            iconText: "\u2261"
+                            iconSize: 20; buttonSize: 34
+                            customColor: "#CCCCCC"
+
+                            ToolTip {
+                                visible: plHover.containsMouse
+                                text: "\u64AD\u653E\u5217\u8868 (L)"
+                                delay: 500
+                            }
+
+                            MouseArea {
+                                id: plHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
+
+                            onClicked: root.playlistVisible = !root.playlistVisible
+                        }
+
+                        IconButton {
+                            iconText: root.visibility === Window.FullScreen ? "\u2922" : "\u26F6"
+                            iconSize: 20; buttonSize: 34
+                            customColor: "#CCCCCC"
+
+                            ToolTip {
+                                visible: fsHover.containsMouse
+                                text: root.visibility === Window.FullScreen ? "\u9000\u51FA\u5168\u5C4F (Esc)" : "\u5168\u5C4F (F)"
+                                delay: 500
+                            }
+
+                            MouseArea {
+                                id: fsHover
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                acceptedButtons: Qt.NoButton
+                            }
+
+                            onClicked: toggleFullScreen()
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: hoverTooltip
+                    visible: false
+                    y: progressBar.mapToItem(controlsOverlay, 0, 0).y - height - 4
+                    width: hoverTimeText.implicitWidth + 16
+                    height: hoverTimeText.implicitHeight + 8
+                    radius: 4
+                    color: Qt.rgba(0, 0, 0, 0.85)
+                    z: 10
+
                     Text {
+                        id: hoverTimeText
                         anchors.centerIn: parent
-                        text: PlayerI18nContext.tr("No files loaded\nClick + to add")
-                        color: ThemeManager.onSurface
-                        opacity: 0.3
-                        font.pixelSize: 13
-                        horizontalAlignment: Text.AlignHCenter
-                        visible: playlist.count === 0
+                        color: "#ffffff"
+                        font.pixelSize: 11
+                        font.family: "IBM Plex Sans"
                     }
                 }
             }
         }
+
+        PlaylistSidebar {
+            id: playlistSidebar
+            Layout.preferredWidth: root.playlistVisible ? 260 : 0
+            Layout.fillHeight: true
+            playlistModel: playlist
+            loadAndPlayFunc: loadAndPlay
+            formatTimeFunc: formatTime
+            openFileDialog: fileDialog
+            openUrlDialog: urlDialog
+
+            visible: Layout.preferredWidth > 0
+            Behavior on Layout.preferredWidth {
+                NumberAnimation { duration: 250; easing.type: Easing.InOutQuad }
+            }
+
+            onItemDoubleClicked: function(idx) {
+                playlist.currentIndex = idx
+                loadAndPlay(idx)
+            }
+            onItemRemoveRequested: function(idx) { if (idx >= 0) playlist.remove(idx) }
+        }
     }
 
-    // OSD Overlay
     Rectangle {
-        id: osdRect
-        anchors.centerIn: parent
-        width: osdText.implicitWidth + 40
-        height: osdText.implicitHeight + 20
-        color: "#80000000"
-        radius: 8
-        opacity: 0.0
-        visible: opacity > 0
+        id: contextMenu
+        property int currentIndex: -1
+        function popup() { contextMenu.visible = true }
+        function close() { contextMenu.visible = false }
 
-        Text {
-            id: osdText
-            anchors.centerIn: parent
-            color: "#ffffff"
-            font.pixelSize: 24
-            font.bold: true
+        x: Math.min(videoMouseArea.mouseX, videoContainer.width - width - 8)
+        y: Math.min(videoMouseArea.mouseY, videoContainer.height - height - 8)
+        width: 220
+        visible: false
+        radius: 10
+        color: ThemeManager.bgSidebar
+        border.color: ThemeManager.border; border.width: 0.5
+
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
         }
 
-        NumberAnimation {
-            id: osdAnimation
-            target: osdRect
-            property: "opacity"
-            to: 0.0
-            duration: 1000
-            easing.type: Easing.InQuad
+        Column {
+            anchors.fill: parent
+            anchors.margins: 6
+            spacing: 2
+            topPadding: 4
+
+            Repeater {
+                model: [
+                    { text: player.isPlaying ? qsTr("Pause") : qsTr("Play"), icon: player.isPlaying ? "\u23F8" : "\u25B6", action: function() { togglePlayPause(); contextMenu.close() } },
+                    { text: qsTr("Stop"), icon: "\u25A0", action: function() { player.stop(); showOsd("Stopped"); contextMenu.close() } },
+                    { type: "divider" },
+                    { text: qsTr("Jump to Time..."), icon: "\u23F1", action: function() { jumpDialog.open(); contextMenu.close() } },
+                    { text: qsTr("Add to Playlist"), icon: "+", action: function() { fileDialog.open(); contextMenu.close() } },
+                    { type: "divider" },
+                    { text: qsTr("Screenshot"), icon: "\uD83D\uDCF7", action: function() { showOsd("Screenshot shortcut"); contextMenu.close() } },
+                    { text: qsTr("Fullscreen"), icon: "\u26F6", action: function() { toggleFullScreen(); contextMenu.close() } },
+                    { type: "divider" },
+                    { text: qsTr("Video Info"), icon: "\u2139", action: function() { videoInfoHud.visible = !videoInfoHud.visible; contextMenu.close() } }
+                ]
+
+                delegate: Item {
+                    width: contextMenu.width - 12
+                    height: modelData.type === "divider" ? 9 : 32
+
+                    Rectangle {
+                        visible: modelData.type === "divider"
+                        width: contextMenu.width - 24; height: 1
+                        color: ThemeManager.border; opacity: 0.3
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Rectangle {
+                        visible: modelData.type !== "divider"
+                        width: contextMenu.width - 12; height: 32; radius: 6
+                        color: cmItemMa.containsMouse ? ThemeManager.hoverHighlight : "transparent"
+
+                        Row {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12; anchors.rightMargin: 12
+                            spacing: 8
+
+                            Text {
+                                text: modelData.icon || ""
+                                font.pixelSize: 14; color: ThemeManager.textSecondary
+                                anchors.verticalCenter: parent.verticalCenter; width: 20
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+                            Text {
+                                text: modelData.text || ""
+                                font.pixelSize: 13; font.family: "IBM Plex Sans"
+                                color: ThemeManager.textPrimary
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                        }
+
+                        MouseArea {
+                            id: cmItemMa
+                            anchors.fill: parent; hoverEnabled: true
+                            onClicked: if (modelData.action) modelData.action()
+                        }
+                    }
+                }
+            }
+        }
+
+        Timer {
+            id: contextMenuCloseTimer
+            interval: 100; repeat: false
+            onTriggered: {
+                if (!contextMenu.contains(Qt.point(videoMouseArea.mouseX, videoMouseArea.mouseY)))
+                    contextMenu.visible = false
+            }
+        }
+
+        onVisibleChanged: {
+            if (visible) contextMenuCloseTimer.start()
         }
     }
 
-    // Toast Notification
     Rectangle {
         id: toastRect
-        anchors.top: parent.top
-        anchors.topMargin: 20
+        anchors.top: parent.top; anchors.topMargin: 20
         anchors.horizontalCenter: parent.horizontalCenter
-        width: toastText.implicitWidth + 30
-        height: toastText.implicitHeight + 20
-        color: ThemeManager.errorColor
-        radius: 4
-        opacity: 0.0
-        visible: opacity > 0
+        width: toastText.implicitWidth + 30; height: toastText.implicitHeight + 20
+        color: ThemeManager.errorColor; radius: 4
+        opacity: 0; visible: opacity > 0
 
         Text {
             id: toastText
-            anchors.centerIn: parent
-            color: "#ffffff"
-            font.pixelSize: 14
+            anchors.centerIn: parent; color: "#ffffff"; font.pixelSize: 14
         }
 
         SequentialAnimation {
             id: toastAnimation
             PauseAnimation { duration: 3000 }
-            NumberAnimation {
-                target: toastRect
-                property: "opacity"
-                to: 0.0
-                duration: 500
-            }
+            NumberAnimation { target: toastRect; property: "opacity"; to: 0; duration: 500 }
+        }
+    }
+
+    JumpDialog {
+        id: jumpDialog
+        anchors.centerIn: parent
+        player: player
+        formatTimeFunc: formatTime
+        onJumpRequested: function(target) {
+            player.seek(target)
+            showOsd("Jumped to " + formatTime(target))
         }
     }
 }

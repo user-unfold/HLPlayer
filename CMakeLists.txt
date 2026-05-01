@@ -94,6 +94,7 @@ option(BUILD_VSR "Build VSR (Video Super-Resolution) module" OFF)
 # ============================================================================
 add_subdirectory(src/core)
 add_subdirectory(src/extractor)
+add_subdirectory(src/subtitle)
 add_subdirectory(src/render)
 
 option(BUILD_QML "Build Qt6/QML integration module" ON)

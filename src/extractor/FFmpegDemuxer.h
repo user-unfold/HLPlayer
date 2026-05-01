@@ -36,7 +36,7 @@ struct FFmpegDemuxerOptions {
     int64_t timeoutUs = 10000000;
     int bufferSize = 32768;
     int maxAnalyzeDuration = 5000000;
-    bool lowLatency = true;
+    bool lowLatency = false;
     bool probeStreams = true;
 
     FFmpegDemuxerOptions() = default;
@@ -59,6 +59,12 @@ struct StreamInfo {
 /// FFmpeg-based demuxer implementation
 class HLPLAYER_EXTRACTOR_API FFmpegDemuxer : public hlplayer::IDemuxer {
 public:
+    enum class ReconnectState : int {
+        Idle = 0,
+        Reconnecting = 1,
+        Connected = 2
+    };
+
     explicit FFmpegDemuxer();
     ~FFmpegDemuxer() override;
 
@@ -89,6 +95,11 @@ private:
 
     AVDictionaryPtr createFFmpegOptions() const;
     StreamType getStreamType(const AVStream* stream) const;
+
+    void notifyReconnectStateChanged(int attempt, int delaySeconds, const std::string& state);
+    bool isNetworkUrl(const std::string& url) const;
+    bool reconnectWithBackoff();
+    bool cancellableSleep(int seconds);
 
     AVFormatContextPtr formatCtx_;
     std::unordered_map<int, StreamInfo> streamInfoMap_;
@@ -125,6 +136,10 @@ private:
 
     AVRational videoTimeBase_{0, 1};
     AVRational audioTimeBase_{0, 1};
+
+    std::atomic<int> reconnectAttempt_{0};
+    std::atomic<int> reconnectState_{static_cast<int>(ReconnectState::Idle)};
+    std::atomic<bool> cancelReconnect_{false};
 };
 
 } // namespace extractor

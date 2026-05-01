@@ -10,7 +10,7 @@ namespace qml {
 
 ThemeManager::ThemeManager(QObject* parent)
     : QObject(parent)
-    , accentColor_(0x00, 0x78, 0xD4) {
+    , accentColor_(0x8B, 0x5C, 0xF6) {
     applyTheme();
     spdlog::info("HLPlayer::ThemeManager constructed");
 }
@@ -83,15 +83,43 @@ void ThemeManager::applyTheme() {
         surface_ = QColor(0x20, 0x20, 0x20);
         surfaceVariant_ = QColor(0x2D, 0x2D, 0x2D);
         onSurface_ = QColor(0xFF, 0xFF, 0xFF);
+        bgMain_ = QColor(0x0F, 0x0F, 0x0F);
+        bgSidebar_ = QColor(0x1A, 0x1A, 0x1A);
+        textPrimary_ = QColor(0xFF, 0xFF, 0xFF);
+        textSecondary_ = QColor(0xAA, 0xAA, 0xAA);
+        textDisabled_ = QColor(0x55, 0x55, 0x55);
+        border_ = QColor(0x2A, 0x2A, 0x2A);
+        hoverHighlight_ = QColor(0xFF, 0xFF, 0xFF, 20);
+        controlBarBackstop_ = QColor(0x00, 0x00, 0x00, 230);
     } else {
         primary_ = QColor(0x00, 0x78, 0xD4);
         surface_ = QColor(0xF3, 0xF3, 0xF3);
         surfaceVariant_ = QColor(0xE5, 0xE5, 0xE5);
         onSurface_ = QColor(0x00, 0x00, 0x00);
+        bgMain_ = QColor(0xFA, 0xFA, 0xFA);
+        bgSidebar_ = QColor(0xF0, 0xF0, 0xF0);
+        textPrimary_ = QColor(0x1A, 0x1A, 0x1A);
+        textSecondary_ = QColor(0x66, 0x66, 0x66);
+        textDisabled_ = QColor(0xAA, 0xAA, 0xAA);
+        border_ = QColor(0xDD, 0xDD, 0xDD);
+        hoverHighlight_ = QColor(0x00, 0x00, 0x00, 20);
+        controlBarBackstop_ = QColor(0xFF, 0xFF, 0xFF, 230);
     }
 
     errorColor_ = QColor(0xFF, 0x00, 0x00);
+    secondaryAccent_ = QColor(0xA7, 0x8B, 0xFA);
 }
+
+QColor ThemeManager::secondaryAccent() const { return secondaryAccent_; }
+
+QColor ThemeManager::bgMain() const { return bgMain_; }
+QColor ThemeManager::bgSidebar() const { return bgSidebar_; }
+QColor ThemeManager::textPrimary() const { return textPrimary_; }
+QColor ThemeManager::textSecondary() const { return textSecondary_; }
+QColor ThemeManager::textDisabled() const { return textDisabled_; }
+QColor ThemeManager::border() const { return border_; }
+QColor ThemeManager::hoverHighlight() const { return hoverHighlight_; }
+QColor ThemeManager::controlBarBackstop() const { return controlBarBackstop_; }
 
 } // namespace qml
 } // namespace hlplayer

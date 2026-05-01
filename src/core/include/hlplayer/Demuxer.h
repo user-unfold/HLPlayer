@@ -37,7 +37,7 @@ struct HLPLAYER_CORE_API MediaPacket {
 struct HLPLAYER_CORE_API DemuxerConfig {
     std::string url;
     std::string format = "auto";   ///< auto, hls, dash, rtmp
-    bool lowLatency = true;        ///< enable low-latency demuxing (reduced buffering)
+    bool lowLatency = false;       ///< enable low-latency demuxing (reduced buffering)
     uint32_t bufferDurationMs = 0; ///< buffer size in ms (0 = use format default)
     uint32_t probeDurationMs = 500000; ///< format probe timeout in microseconds
     bool noBuffer = true;          ///< disable internal buffering (ideal for live streams)
@@ -62,6 +62,8 @@ struct HLPLAYER_CORE_API DemuxerCallbacks {
 
     /// Called when the demuxer reaches end-of-stream (no more packets)
     std::function<void()> onEndOfStream;
+
+    std::function<void(int /*attempt*/, int /*delaySeconds*/, const std::string& /*state*/)> onReconnectStateChanged;
 };
 
 /// Pure virtual demuxer interface

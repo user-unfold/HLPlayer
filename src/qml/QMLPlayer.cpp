@@ -6,6 +6,7 @@
 #include <ExtractorFactory.h>
 #include <VulkanVideoSink.h>
 #include <SDLAudioRenderer.h>
+#include <SubtitleRenderer.h>
 
 #include <QtGlobal>
 #include <QUrl>
@@ -24,20 +25,29 @@ namespace qml {
 struct QMLPlayer::Impl {
     std::unique_ptr<render::VulkanVideoSink> videoSink;
     std::unique_ptr<MediaPlayer> mediaPlayer;
+    std::unique_ptr<subtitle::SubtitleRenderer> subtitleRenderer;
     QString source;
     double volume = 1.0;
     double duration = 0.0;
     double fpsValue = 0.0;
     double playbackRateValue = 1.0;
+    bool lowLatencyModeValue = false;
     double seekTarget_ = -1.0;
     qint64 seekStabilizeStart_ = 0;
     int videoWidth = 0;
     int videoHeight = 0;
+    int reconnectAttemptValue = 0;
+    QString connectionStateValue = "connected";
+    qreal streamBitrateValue = 0.0;
+    int bufferDurationValue = 0;
+    int droppedFramesValue = 0;
     int stateChangeSubscriptionId = -1;
     int errorSubscriptionId = -1;
     int resolutionSubscriptionId = -1;
+    int reconnectSubscriptionId = -1;
     QTimer* positionTimer = nullptr;
     QTimer* eventDispatchTimer = nullptr;
+    QTimer* statsTimer = nullptr;
     QMLPlayer* owner = nullptr;
 };
 
@@ -45,6 +55,7 @@ QMLPlayer::QMLPlayer(QObject* parent)
     : QObject(parent)
     , impl_(std::make_unique<Impl>()) {
     impl_->videoSink = std::make_unique<render::VulkanVideoSink>();
+    impl_->subtitleRenderer = std::make_unique<subtitle::SubtitleRenderer>();
 
     auto demuxer = extractor::createFFmpegDemuxer();
     auto decoder = extractor::createFFmpegVideoDecoder();
@@ -86,6 +97,14 @@ QMLPlayer::QMLPlayer(QObject* parent)
     });
     impl_->eventDispatchTimer->start();
 
+    impl_->statsTimer = new QTimer(this);
+    impl_->statsTimer->setInterval(500);
+    connect(impl_->statsTimer, &QTimer::timeout, this, [this]() {
+        emit streamBitrateChanged();
+        emit bufferDurationChanged();
+        emit droppedFramesChanged();
+    });
+
     setupEventBusSubscription();
     spdlog::info("HLPlayer::QMLPlayer constructed");
 }
@@ -95,6 +114,12 @@ QMLPlayer::~QMLPlayer() {
     if (impl_->eventDispatchTimer) {
         impl_->eventDispatchTimer->stop();
     }
+    if (impl_->positionTimer) {
+        impl_->positionTimer->stop();
+    }
+    if (impl_->statsTimer) {
+        impl_->statsTimer->stop();
+    }
     if (impl_->stateChangeSubscriptionId >= 0) {
         impl_->mediaPlayer->eventBus().unsubscribe(impl_->stateChangeSubscriptionId);
     }
@@ -103,6 +128,9 @@ QMLPlayer::~QMLPlayer() {
     }
     if (impl_->resolutionSubscriptionId >= 0) {
         impl_->mediaPlayer->eventBus().unsubscribe(impl_->resolutionSubscriptionId);
+    }
+    if (impl_->reconnectSubscriptionId >= 0) {
+        impl_->mediaPlayer->eventBus().unsubscribe(impl_->reconnectSubscriptionId);
     }
     spdlog::info("HLPlayer::QMLPlayer destructed");
 }
@@ -163,6 +191,27 @@ void QMLPlayer::setupEventBusSubscription() {
             }
         }
     );
+
+    impl_->reconnectSubscriptionId = impl_->mediaPlayer->eventBus().subscribe(
+        EventType::ReconnectStateChanged,
+        [this](const Event& event) {
+            if (event.type == EventType::ReconnectStateChanged) {
+                const auto& payload = std::get<ReconnectStateChangedPayload>(event.payload);
+                QMetaObject::invokeMethod(
+                    this,
+                    [this, attempt = payload.attempt, delay = payload.delaySeconds, state = QString::fromStdString(payload.state)]() {
+                        impl_->reconnectAttemptValue = attempt;
+                        impl_->connectionStateValue = state;
+                        spdlog::info("QMLPlayer: reconnect state changed - attempt={}, delay={}s, state={}",
+                                     attempt, delay, state.toStdString());
+                        emit reconnectAttemptChanged();
+                        emit connectionStateChanged();
+                    },
+                    Qt::QueuedConnection
+                );
+            }
+        }
+    );
 }
 
 void QMLPlayer::handleStateChangedEvent(int oldState, int newState) {
@@ -182,6 +231,7 @@ void QMLPlayer::handleStateChangedEvent(int oldState, int newState) {
     if (newState == static_cast<int>(PlayerState_Error) ||
         newState == static_cast<int>(PlayerState_End)) {
         impl_->positionTimer->stop();
+        impl_->statsTimer->stop();
     }
 
     if (newState == static_cast<int>(PlayerState_End)) {
@@ -220,8 +270,9 @@ void QMLPlayer::setSource(const QString& source) {
     impl_->source = source;
 
     QString normalizedSource = source;
+    QUrl url;
     if (!source.isEmpty()) {
-        QUrl url(source);
+        url = QUrl(source);
         if (!url.isValid()) {
             url = QUrl::fromUserInput(source);
         }
@@ -239,12 +290,23 @@ void QMLPlayer::setSource(const QString& source) {
     impl_->seekStabilizeStart_ = 0;
     impl_->duration = 0.0;
 
+    impl_->subtitleRenderer->reset();
+
     impl_->mediaPlayer->open(normalizedSource.toStdString());
+
+    if (url.isLocalFile()) {
+        auto discovered = impl_->subtitleRenderer->autoDiscover(normalizedSource.toStdString());
+        if (!discovered.empty()) {
+            impl_->subtitleRenderer->loadFile(discovered);
+            spdlog::info("QMLPlayer: auto-loaded subtitle '{}'", discovered);
+        }
+    }
 
     QMetaObject::invokeMethod(this, [this]() {
         emit sourceChanged();
         emit positionChanged();
         emit durationChanged();
+        emit subtitleChanged();
     }, Qt::QueuedConnection);
 }
 
@@ -314,6 +376,7 @@ bool QMLPlayer::isPaused() const {
 void QMLPlayer::play() {
     impl_->mediaPlayer->play();
     impl_->positionTimer->start();
+    impl_->statsTimer->start();
     double liveDuration = impl_->mediaPlayer->duration();
     if (liveDuration > 0.0 && !qFuzzyCompare(impl_->duration, liveDuration)) {
         impl_->duration = liveDuration;
@@ -325,6 +388,7 @@ void QMLPlayer::play() {
 void QMLPlayer::pause() {
     impl_->mediaPlayer->pause();
     impl_->positionTimer->stop();
+    impl_->statsTimer->stop();
 }
 
 void QMLPlayer::stop() {
@@ -332,6 +396,7 @@ void QMLPlayer::stop() {
     impl_->seekStabilizeStart_ = 0;
     impl_->mediaPlayer->stop();
     impl_->positionTimer->stop();
+    impl_->statsTimer->stop();
 }
 
 void QMLPlayer::seek(double seconds) {
@@ -368,6 +433,66 @@ void QMLPlayer::setPlaybackRate(double rate) {
     impl_->playbackRateValue = rate;
     impl_->mediaPlayer->player()->setPlaybackRate(rate);
     emit playbackRateChanged();
+}
+
+bool QMLPlayer::lowLatencyMode() const {
+    return impl_->lowLatencyModeValue;
+}
+
+void QMLPlayer::setLowLatencyMode(bool enabled) {
+    if (impl_->lowLatencyModeValue == enabled) return;
+    impl_->lowLatencyModeValue = enabled;
+    impl_->mediaPlayer->player()->setLowLatency(enabled);
+    emit lowLatencyModeChanged();
+}
+
+int QMLPlayer::reconnectAttempt() const {
+    return impl_->reconnectAttemptValue;
+}
+
+QString QMLPlayer::connectionState() const {
+    return impl_->connectionStateValue;
+}
+
+qreal QMLPlayer::streamBitrate() const {
+    return impl_->streamBitrateValue;
+}
+
+int QMLPlayer::bufferDuration() const {
+    return impl_->bufferDurationValue;
+}
+
+int QMLPlayer::droppedFrames() const {
+    return impl_->droppedFramesValue;
+}
+
+bool QMLPlayer::subtitleVisible() const {
+    return impl_->subtitleRenderer->isVisible();
+}
+
+void QMLPlayer::setSubtitleVisible(bool visible) {
+    if (impl_->subtitleRenderer->isVisible() == visible) return;
+    impl_->subtitleRenderer->setVisibility(visible);
+    emit subtitleVisibleChanged();
+}
+
+bool QMLPlayer::hasSubtitles() const {
+    return impl_->subtitleRenderer->hasSubtitles();
+}
+
+bool QMLPlayer::toggleSubtitles() {
+    bool newVisible = impl_->subtitleRenderer->toggleVisibility();
+    emit subtitleVisibleChanged();
+    return newVisible;
+}
+
+bool QMLPlayer::loadSubtitleFile(const QString& path) {
+    bool ok = impl_->subtitleRenderer->loadFile(path.toStdString());
+    if (ok) {
+        emit subtitleChanged();
+        emit subtitleVisibleChanged();
+    }
+    return ok;
 }
 
 } // namespace qml

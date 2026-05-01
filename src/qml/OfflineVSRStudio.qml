@@ -17,7 +17,7 @@ ApplicationWindow {
     FileDialog {
         id: importDialog
         title: "Import Video"
-        nameFilters: ["Video files (*.mp4 *.mkv *.avi *.mov)", "All files (*)"]
+        nameFilters: ["Video files (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.ts *.m2ts *.mts *.3gp *.rmvb *.asf *.ogm *.m4v *.divx *.mpg *.mpeg)", "All files (*)"]
         onAccepted: {
                 console.log("VSR: File selected =", selectedFile)
                 console.log("VSR: bridge object =", bridge)

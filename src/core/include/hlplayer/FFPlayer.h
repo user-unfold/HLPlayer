@@ -43,6 +43,8 @@ public:
     Result<void> setPlaybackRate(double rate);
     double getPlaybackRate() const;
 
+    void setLowLatency(bool enabled);
+
     PlayerState getState() const;
     double getPosition() const;
     double getDuration() const;

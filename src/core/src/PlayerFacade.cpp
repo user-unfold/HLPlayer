@@ -465,6 +465,11 @@ Result<void> PlayerFacade::open(const std::string& url) {
                     case AV_CODEC_ID_H264: codec = Codec::H264; break;
                     case AV_CODEC_ID_HEVC: codec = Codec::HEVC; break;
                     case AV_CODEC_ID_AV1:  codec = Codec::AV1;  break;
+                    case AV_CODEC_ID_VP8:  codec = Codec::VP8;  break;
+                    case AV_CODEC_ID_VP9:  codec = Codec::VP9;  break;
+                    case AV_CODEC_ID_MPEG2VIDEO: codec = Codec::MPEG2; break;
+                    case AV_CODEC_ID_MPEG4: codec = Codec::MPEG4; break;
+                    case AV_CODEC_ID_VC1:   codec = Codec::VC1;   break;
                     default: break;
                 }
 

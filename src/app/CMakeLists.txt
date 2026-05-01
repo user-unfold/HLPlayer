@@ -34,6 +34,7 @@ endif()
 set(_HLPLAYER_DLLS
     $<TARGET_FILE:hlplayer_core>
     $<TARGET_FILE:hlplayer_extractor>
+    $<TARGET_FILE:hlplayer_subtitle>
     $<TARGET_FILE:hlplayer_render>
     $<TARGET_FILE:hlplayer_qml>
 )

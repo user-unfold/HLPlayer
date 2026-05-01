@@ -53,6 +53,7 @@ struct FFPlayer::Impl {
     std::atomic<double> positionFloor_{-1.0};
     std::atomic<double> duration{0.0};
     std::string currentUrl;
+    bool lowLatency = false;
     bool videoStreamReady = false;
     bool audioStreamReady = false;
 
@@ -169,6 +170,11 @@ Result<void> FFPlayer::open(const std::string& url) {
                     case AV_CODEC_ID_H264: codec = Codec::H264; break;
                     case AV_CODEC_ID_HEVC: codec = Codec::HEVC; break;
                     case AV_CODEC_ID_AV1: codec = Codec::AV1; break;
+                    case AV_CODEC_ID_VP8: codec = Codec::VP8; break;
+                    case AV_CODEC_ID_VP9: codec = Codec::VP9; break;
+                    case AV_CODEC_ID_MPEG2VIDEO: codec = Codec::MPEG2; break;
+                    case AV_CODEC_ID_MPEG4: codec = Codec::MPEG4; break;
+                    case AV_CODEC_ID_VC1: codec = Codec::VC1; break;
                     default: break;
                 }
                 if (codec == Codec::Unknown) return;
@@ -247,8 +253,15 @@ Result<void> FFPlayer::open(const std::string& url) {
         impl_->eventBus.publish(e);
     };
 
+    callbacks.onReconnectStateChanged = [this](int attempt, int delaySeconds, const std::string& state) {
+        Event e{EventType::ReconnectStateChanged, 0.0,
+                ReconnectStateChangedPayload{attempt, delaySeconds, state}};
+        impl_->eventBus.publish(e);
+    };
+
     DemuxerConfig config;
     config.url = url;
+    config.lowLatency = impl_->lowLatency;
     auto result = impl_->demuxer->open(url, config, callbacks);
     if (result.hasError()) return result;
 
@@ -508,6 +521,10 @@ Result<void> FFPlayer::setPlaybackRate(double rate) {
 
 double FFPlayer::getPlaybackRate() const {
     return impl_->playbackRate.load();
+}
+
+void FFPlayer::setLowLatency(bool enabled) {
+    impl_->lowLatency = enabled;
 }
 
 PlayerState FFPlayer::getState() const {

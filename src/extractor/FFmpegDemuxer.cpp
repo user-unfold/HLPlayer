@@ -37,6 +37,9 @@ Result<void> FFmpegDemuxer::open(const std::string& url,
     config_ = config;
     callbacks_ = std::move(callbacks);
     shouldStop_.store(false);
+    cancelReconnect_.store(false);
+    reconnectAttempt_.store(0);
+    reconnectState_.store(static_cast<int>(ReconnectState::Connected));
 
     spdlog::info("Opening demuxer for URL: {}", url);
 
@@ -187,6 +190,7 @@ Result<void> FFmpegDemuxer::stop() {
         }
 
         shouldStop_.store(true);
+        cancelReconnect_.store(true);
     }
 
     commandCv_.notify_one();
@@ -469,10 +473,18 @@ void FFmpegDemuxer::demuxLoop() {
             } else {
                 char errBuf[AV_ERROR_MAX_STRING_SIZE] = {0};
                 av_strerror(ret, errBuf, sizeof(errBuf));
-                spdlog::warn("Demuxer: av_read_frame error (ret={}): {}, will retry", ret, errBuf);
-                notifyError(PlayerError::DecodeError, std::string("Failed to read frame: ") + errBuf);
-                av_packet_unref(packet.get());
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                spdlog::warn("Demuxer: av_read_frame error (ret={}): {}", ret, errBuf);
+
+                if (isNetworkUrl(config_.url) && config_.lowLatency) {
+                    if (!reconnectWithBackoff()) {
+                        av_packet_unref(packet.get());
+                        break;
+                    }
+                } else {
+                    notifyError(PlayerError::DecodeError, std::string("Failed to read frame: ") + errBuf);
+                    av_packet_unref(packet.get());
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                }
                 continue;
             }
 
@@ -632,16 +644,20 @@ AVDictionaryPtr FFmpegDemuxer::createFFmpegOptions() const {
         av_dict_set(&dict, "analyzeduration", analyzeStr.c_str(), 0);
     }
 
-    if (ffmpegOptions_.lowLatency) {
-        // Reconnect options only make sense for network streams.
-        if (config_.url.compare(0, 7, "http://") == 0 ||
-            config_.url.compare(0, 8, "https://") == 0 ||
-            config_.url.compare(0, 6, "rtmp://") == 0 ||
-            config_.url.compare(0, 7, "rtmps://") == 0) {
-            av_dict_set(&dict, "reconnect", "1", 0);
-            av_dict_set(&dict, "reconnect_streamed", "1", 0);
-            av_dict_set(&dict, "reconnect_delay_max", "2", 0);
-        }
+    if (config_.lowLatency) {
+        av_dict_set(&dict, "fflags", "nobuffer", 0);
+        av_dict_set(&dict, "analyzeduration", "100000", 0);
+        av_dict_set(&dict, "probesize", "32768", 0);
+        av_dict_set(&dict, "flags", "low_delay", 0);
+        av_dict_set(&dict, "max_delay", "500000", 0);
+    }
+
+    if (config_.url.compare(0, 7, "http://") == 0 ||
+        config_.url.compare(0, 8, "https://") == 0 ||
+        config_.url.compare(0, 6, "rtmp://") == 0 ||
+        config_.url.compare(0, 7, "rtmps://") == 0) {
+        av_dict_set(&dict, "reconnect", "1", 0);
+        av_dict_set(&dict, "reconnect_streamed", "1", 0);
     }
 
     if (!config_.format.empty() && config_.format != "auto") {
@@ -666,6 +682,103 @@ StreamType FFmpegDemuxer::getStreamType(const AVStream* stream) const {
         default:
             return StreamType::Unknown;
     }
+}
+
+void FFmpegDemuxer::notifyReconnectStateChanged(int attempt, int delaySeconds, const std::string& state) {
+    if (callbacks_.onReconnectStateChanged) {
+        callbacks_.onReconnectStateChanged(attempt, delaySeconds, state);
+    }
+}
+
+bool FFmpegDemuxer::isNetworkUrl(const std::string& url) const {
+    return url.compare(0, 7, "http://") == 0 ||
+           url.compare(0, 8, "https://") == 0 ||
+           url.compare(0, 6, "rtmp://") == 0 ||
+           url.compare(0, 7, "rtmps://") == 0;
+}
+
+bool FFmpegDemuxer::cancellableSleep(int seconds) {
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (shouldStop_.load() || cancelReconnect_.load()) {
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    return true;
+}
+
+bool FFmpegDemuxer::reconnectWithBackoff() {
+    reconnectState_.store(static_cast<int>(ReconnectState::Reconnecting));
+
+    while (!shouldStop_.load()) {
+        int attempt = reconnectAttempt_.fetch_add(1);
+        int delay = std::min(1 << attempt, 30);
+
+        spdlog::info("Demuxer: reconnect attempt {}, waiting {}s", attempt + 1, delay);
+        notifyReconnectStateChanged(attempt + 1, delay, "reconnecting");
+
+        if (!cancellableSleep(delay)) {
+            spdlog::info("Demuxer: reconnect cancelled by user");
+            reconnectState_.store(static_cast<int>(ReconnectState::Idle));
+            notifyReconnectStateChanged(0, 0, "idle");
+            return false;
+        }
+
+        std::string url = config_.url;
+        formatCtx_.reset();
+
+        AVFormatContext* rawCtx = avformat_alloc_context();
+        if (!rawCtx) {
+            spdlog::error("Demuxer: reconnect failed to allocate format context");
+            continue;
+        }
+
+        rawCtx->interrupt_callback.opaque = this;
+        rawCtx->interrupt_callback.callback = [](void* opaque) -> int {
+            auto* demuxer = static_cast<FFmpegDemuxer*>(opaque);
+            return demuxer->shouldStop_.load() || demuxer->cancelReconnect_.load() ? 1 : 0;
+        };
+
+        AVDictionaryPtr options = createFFmpegOptions();
+        AVDictionary* rawOptions = options.release();
+        int openRet = avformat_open_input(&rawCtx, url.c_str(), nullptr, &rawOptions);
+        if (rawOptions) {
+            av_dict_free(&rawOptions);
+        }
+
+        if (openRet < 0) {
+            char errBuf[AV_ERROR_MAX_STRING_SIZE] = {0};
+            av_strerror(openRet, errBuf, sizeof(errBuf));
+            spdlog::warn("Demuxer: reconnect open failed (attempt {}): {}", attempt + 1, errBuf);
+            continue;
+        }
+
+        formatCtx_.reset(rawCtx);
+
+        int infoRet = avformat_find_stream_info(formatCtx_.get(), nullptr);
+        if (infoRet < 0) {
+            char errBuf[AV_ERROR_MAX_STRING_SIZE] = {0};
+            av_strerror(infoRet, errBuf, sizeof(errBuf));
+            spdlog::warn("Demuxer: reconnect find_stream_info failed (attempt {}): {}", attempt + 1, errBuf);
+            formatCtx_.reset();
+            continue;
+        }
+
+        if (formatCtx_->pb) {
+            formatCtx_->pb->eof_reached = 0;
+        }
+
+        reconnectAttempt_.store(0);
+        reconnectState_.store(static_cast<int>(ReconnectState::Connected));
+        spdlog::info("Demuxer: reconnected successfully after {} attempt(s)", attempt + 1);
+        notifyReconnectStateChanged(0, 0, "connected");
+        return true;
+    }
+
+    reconnectState_.store(static_cast<int>(ReconnectState::Idle));
+    notifyReconnectStateChanged(0, 0, "idle");
+    return false;
 }
 
 } // namespace extractor

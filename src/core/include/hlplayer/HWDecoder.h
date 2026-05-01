@@ -21,7 +21,12 @@ enum class Codec : uint8_t {
     Unknown = 0,
     H264,
     HEVC,
-    AV1
+    AV1,
+    VP8,
+    VP9,
+    MPEG2,
+    MPEG4,
+    VC1
 };
 
 struct DecoderConfig {

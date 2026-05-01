@@ -52,6 +52,21 @@ Result<void> FFmpegVideoDecoder::open(const DecoderConfig& config) {
         case Codec::AV1:
             avCodecId = AV_CODEC_ID_AV1;
             break;
+        case Codec::VP8:
+            avCodecId = AV_CODEC_ID_VP8;
+            break;
+        case Codec::VP9:
+            avCodecId = AV_CODEC_ID_VP9;
+            break;
+        case Codec::MPEG2:
+            avCodecId = AV_CODEC_ID_MPEG2VIDEO;
+            break;
+        case Codec::MPEG4:
+            avCodecId = AV_CODEC_ID_MPEG4;
+            break;
+        case Codec::VC1:
+            avCodecId = AV_CODEC_ID_VC1;
+            break;
         default:
             spdlog::error("Unsupported codec: {}", static_cast<int>(config.codec));
             return Result<void>::error(PlayerError::DecodeError);
@@ -110,9 +125,12 @@ Result<void> FFmpegVideoDecoder::open(const DecoderConfig& config) {
                         if (codecId == AV_CODEC_ID_H264 || codecId == AV_CODEC_ID_HEVC) {
                             poolSize += 16;  // DPB needs up to 16 reference frames
                         } else if (codecId == AV_CODEC_ID_VP9 || codecId == AV_CODEC_ID_AV1) {
-                            poolSize += 8;
+                            poolSize += 8;   // VP9/AV1 need up to 8 reference frames
+                        } else if (codecId == AV_CODEC_ID_MPEG2VIDEO || codecId == AV_CODEC_ID_MPEG4 ||
+                                   codecId == AV_CODEC_ID_VC1) {
+                            poolSize += 3;   // MPEG2/MPEG4/VC1 need 3 reference frames
                         } else {
-                            poolSize += 2;
+                            poolSize += 2;   // Default for other codecs (e.g., VP8)
                         }
                         framesCtx->initial_pool_size = poolSize;
 
@@ -411,6 +429,11 @@ bool FFmpegVideoDecoder::supportsCodec(Codec codec) const {
         case Codec::H264:
         case Codec::HEVC:
         case Codec::AV1:
+        case Codec::VP8:
+        case Codec::VP9:
+        case Codec::MPEG2:
+        case Codec::MPEG4:
+        case Codec::VC1:
             return true;
         default:
             return false;

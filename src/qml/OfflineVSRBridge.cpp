@@ -399,7 +399,7 @@ void OfflineVSRBridge::importVideo(const QString& path) {
     }
 
     QString suffix = fi.suffix().toLower();
-    QStringList videoExts = {"mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "ts", "m4v"};
+    QStringList videoExts = {"mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "ts", "m2ts", "mts", "3gp", "rmvb", "asf", "ogm", "m4v", "divx", "mpg", "mpeg"};
     if (!videoExts.contains(suffix)) {
         emit errorOccurred(tr("Unsupported video format: %1").arg(suffix));
         return;
