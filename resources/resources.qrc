@@ -1,13 +1,15 @@
 <RCC>
     <qresource prefix="/">
-        <file>icons/PlayOrPauseBtn.png</file>
-        <file>icons/stopBtn.png</file>
+        <file>icons/playBtn.png</file>
+        <file>icons/pauseBtn.png</file>
         <file>icons/forwardBtn.png</file>
         <file>icons/backwardBtn.png</file>
         <file>icons/speedBtn.png</file>
-        <file>icons/playlistBtn.png</file>
         <file>icons/volumnButton.png</file>
-        <file>icons/player_icon.png</file>
+        <file>icons/playbackModeLoop.png</file>
+        <file>icons/sequentialBtn.png</file>
+        <file>icons/shuffleBtn.png</file>
+        <file>icons/appIcon.ico</file>
     </qresource>
     <qresource prefix="/HLPlayer">
         <file>qml/Main.qml</file>

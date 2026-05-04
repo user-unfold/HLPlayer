@@ -119,10 +119,10 @@ catch_discover_tests(hlplayer_tests)
 # ============================================================================
 # Benchmark executable
 # ============================================================================
-# Collect benchmark sources
+# Collect benchmark sources (exclude standalone VSR bench)
 file(GLOB_RECURSE BENCHMARK_SOURCES
-    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/*.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/benchmark_basic.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/benchmark_basic.c
 )
 
 # Create benchmark executable if benchmark sources exist
@@ -157,6 +157,19 @@ if(BENCHMARK_SOURCES)
             spdlog::spdlog
             nlohmann_json::nlohmann_json
     )
+
+    # Conditionally link VSR (NCNN Vulkan) for GPU benchmarks
+    if(TARGET ncnn AND TARGET hlplayer_vsr)
+        target_include_directories(hlplayer_benchmarks PRIVATE
+            D:/ncnn/src
+            ${CMAKE_BINARY_DIR}/ncnn/src
+        )
+        target_link_libraries(hlplayer_benchmarks PRIVATE
+            hlplayer_vsr
+            ncnn
+        )
+        target_compile_definitions(hlplayer_benchmarks PRIVATE NCNN_STATIC_DEFINE)
+    endif()
 
     # Platform-specific settings
     if(WIN32)
@@ -214,4 +227,60 @@ if(BENCHMARK_SOURCES)
     install(TARGETS hlplayer_benchmarks
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
+endif()
+
+# ============================================================================
+# Standalone VSR GPU benchmark (no Google Benchmark dependency)
+# ============================================================================
+if(BUILD_VSR AND TARGET ncnn AND TARGET hlplayer_vsr)
+    add_executable(hlplayer_vsr_bench
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/benchmark_vsr_fps.cpp
+    )
+
+    set_target_properties(hlplayer_vsr_bench PROPERTIES
+        CXX_STANDARD 20
+        CXX_STANDARD_REQUIRED ON
+        CXX_EXTENSIONS OFF
+    )
+
+    target_include_directories(hlplayer_vsr_bench PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/src/core
+        ${CMAKE_SOURCE_DIR}/src/extractor
+        ${CMAKE_SOURCE_DIR}/src/render
+        D:/ncnn/src
+        ${CMAKE_BINARY_DIR}/ncnn/src
+    )
+
+    target_link_libraries(hlplayer_vsr_bench PRIVATE
+        hlplayer_core
+        hlplayer_vsr
+        ncnn
+        spdlog::spdlog
+    )
+
+    target_compile_definitions(hlplayer_vsr_bench PRIVATE
+        NCNN_STATIC_DEFINE
+        NOMINMAX
+        WIN32_LEAN_AND_MEAN
+    )
+
+    if(MSVC)
+        target_compile_options(hlplayer_vsr_bench PRIVATE /W4)
+    else()
+        target_compile_options(hlplayer_vsr_bench PRIVATE -Wall -Wextra)
+    endif()
+
+    if(WIN32)
+        add_custom_command(TARGET hlplayer_vsr_bench POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:hlplayer_core>
+                $<TARGET_FILE_DIR:hlplayer_vsr_bench>
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${MINGW_BIN_DIR}/libstdc++-6.dll
+                ${MINGW_BIN_DIR}/libgcc_s_seh-1.dll
+                ${MINGW_BIN_DIR}/libwinpthread-1.dll
+                $<TARGET_FILE_DIR:hlplayer_vsr_bench>
+        )
+    endif()
 endif()

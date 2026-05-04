@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(HLPlayer VERSION 1.0.0 LANGUAGES CXX)
+project(HLPlayer VERSION 1.1.1 LANGUAGES CXX)
 
 # ============================================================================
 # Project Configuration
@@ -102,10 +102,8 @@ if(BUILD_QML)
     add_subdirectory(src/app)
 endif()
 
-add_subdirectory(tests)
-
 # ============================================================================
-# NCNN integration — placed AFTER all other targets to isolate CMake state
+# NCNN integration — placed AFTER core modules to isolate CMake state
 # NCNN's CMakeLists.txt modifies global policies (CMP0091) and variables
 # that can affect downstream targets. Processing it last limits the damage.
 # ============================================================================
@@ -137,6 +135,8 @@ if(BUILD_VSR)
 
     add_subdirectory(src/vsr)
 endif()
+
+add_subdirectory(tests)
 
 # ============================================================================
 # Configuration Summary

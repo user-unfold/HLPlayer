@@ -4,6 +4,7 @@
 #include <QQuickWindow>
 #include <QQuickStyle>
 #include <QDir>
+#include <QIcon>
 #include <QDebug>
 #include <QUrl>
 #include <cstdio>
@@ -19,6 +20,8 @@ int main(int argc, char *argv[])
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
 
     QGuiApplication app(argc, argv);
+
+    app.setWindowIcon(QIcon(":/icons/appIcon.ico"));
 
     QQuickStyle::setStyle("Basic");
 

@@ -19,6 +19,8 @@ ApplicationWindow {
     property real previousVolume: 1.0
     property bool isMuted: player.volume === 0
     property real pendingSeekValue: -1
+    property string playbackMode: "loop"
+    readonly property var allPlaybackModes: ["loop", "sequential", "random"]
 
     readonly property int space1: 8
     readonly property int space2: 16
@@ -566,11 +568,11 @@ ApplicationWindow {
                                     color: prevBtn.hovered ? ThemeManager.accentColor : ThemeManager.onSurface
                                     opacity: prevBtn.hovered ? 0.3 : 0.15
                                 }
-                                contentItem: Text {
+                                contentItem: Image {
                                     anchors.centerIn: parent
-                                    text: "\u23EE" // ⏮
-                                    font.pixelSize: 14
-                                    color: ThemeManager.onSurface
+                                    width: 20; height: 20
+                                    source: "qrc:/icons/backwardBtn.png"
+                                    fillMode: Image.PreserveAspectFit
                                 }
                                 onClicked: playPrev()
                             }
@@ -585,11 +587,11 @@ ApplicationWindow {
                                     color: playPauseBtn.hovered ? ThemeManager.accentColor : ThemeManager.onSurface
                                     opacity: playPauseBtn.hovered ? 0.3 : 0.15
                                 }
-                                contentItem: Text {
+                                contentItem: Image {
                                     anchors.centerIn: parent
-                                    text: player.isPlaying ? "\u23F8" : "\u25B6"
-                                    font.pixelSize: 16
-                                    color: ThemeManager.onSurface
+                                    width: 22; height: 22
+                                    source: player.isPlaying ? "qrc:/icons/pauseBtn.png" : "qrc:/icons/playBtn.png"
+                                    fillMode: Image.PreserveAspectFit
                                 }
                                 onClicked: togglePlayPause()
                             }
@@ -604,11 +606,11 @@ ApplicationWindow {
                                     color: nextBtn.hovered ? ThemeManager.accentColor : ThemeManager.onSurface
                                     opacity: nextBtn.hovered ? 0.3 : 0.15
                                 }
-                                contentItem: Text {
+                                contentItem: Image {
                                     anchors.centerIn: parent
-                                    text: "\u23ED" // ⏭
-                                    font.pixelSize: 14
-                                    color: ThemeManager.onSurface
+                                    width: 20; height: 20
+                                    source: "qrc:/icons/forwardBtn.png"
+                                    fillMode: Image.PreserveAspectFit
                                 }
                                 onClicked: playNext()
                             }
@@ -700,13 +702,118 @@ ApplicationWindow {
                             }
 
                             Button {
+                                id: playbackModeBtn
                                 flat: true
-                                Layout.preferredWidth: 24
-                                onClicked: toggleMute()
-                                contentItem: Text {
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 28
+
+                                function modeIcon(mode) {
+                                    if (mode === "loop") return "qrc:/icons/playbackModeLoop.png"
+                                    if (mode === "sequential") return "qrc:/icons/sequentialBtn.png"
+                                    if (mode === "random") return "qrc:/icons/shuffleBtn.png"
+                                    return "qrc:/icons/playbackModeLoop.png"
+                                }
+                                function modeLabel(mode) {
+                                    if (mode === "loop") return PlayerI18nContext.tr("Loop")
+                                    if (mode === "sequential") return PlayerI18nContext.tr("Sequential")
+                                    if (mode === "random") return PlayerI18nContext.tr("Shuffle")
+                                    return ""
+                                }
+
+                                background: Rectangle {
+                                    radius: 4
+                                    color: playbackModeBtn.hovered ? ThemeManager.surface : "transparent"
+                                }
+                                contentItem: Image {
                                     anchors.centerIn: parent
-                                    text: root.isMuted ? "\uD83D\uDD07" : "\uD83D\uDD0A" // Using text symbols instead of raw emojis if possible, or simple Unicode
-                                    color: ThemeManager.onSurface
+                                    width: 20; height: 20
+                                    source: playbackModeBtn.modeIcon(root.playbackMode)
+                                    fillMode: Image.PreserveAspectFit
+                                }
+                                onClicked: playbackModePopup.open()
+
+                                Popup {
+                                    id: playbackModePopup
+                                    x: playbackModeBtn.width / 2 - width / 2
+                                    y: -height - 4
+                                    width: 120
+                                    padding: 4
+                                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+                                    background: Rectangle {
+                                        color: ThemeManager.surfaceVariant
+                                        radius: 6
+                                        border.color: ThemeManager.onSurface
+                                        border.width: 0.5
+                                        opacity: 0.95
+                                    }
+
+                                    contentItem: Column {
+                                        spacing: 0
+                                        Repeater {
+                                            model: root.allPlaybackModes
+                                            delegate: Rectangle {
+                                                width: 112
+                                                height: 32
+                                                radius: 4
+                                                color: {
+                                                    if (modelData === root.playbackMode)
+                                                        return ThemeManager.accentColor
+                                                    if (modeItemMa.containsMouse)
+                                                        return ThemeManager.surface
+                                                    return "transparent"
+                                                }
+                                                opacity: modelData === root.playbackMode ? 0.3 : 1.0
+
+                                                RowLayout {
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: 8
+                                                    anchors.rightMargin: 8
+                                                    spacing: 6
+
+                                                    Image {
+                                                        Layout.preferredWidth: 18
+                                                        Layout.preferredHeight: 18
+                                                        source: playbackModeBtn.modeIcon(modelData)
+                                                        fillMode: Image.PreserveAspectFit
+                                                    }
+                                                    Text {
+                                                        Layout.fillWidth: true
+                                                        text: playbackModeBtn.modeLabel(modelData)
+                                                        font.pixelSize: 12
+                                                        color: modelData === root.playbackMode
+                                                               ? ThemeManager.accentColor
+                                                               : ThemeManager.onSurface
+                                                        elide: Text.ElideRight
+                                                    }
+                                                }
+
+                                                MouseArea {
+                                                    id: modeItemMa
+                                                    anchors.fill: parent
+                                                    hoverEnabled: true
+                                                    onClicked: {
+                                                        root.playbackMode = modelData
+                                                        playbackModePopup.close()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Button {
+                                flat: true
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 28
+                                onClicked: toggleMute()
+                                contentItem: Image {
+                                    anchors.centerIn: parent
+                                    width: 20; height: 20
+                                    source: "qrc:/icons/volumnButton.png"
+                                    fillMode: Image.PreserveAspectFit
+                                    opacity: root.isMuted ? 0.4 : 1.0
                                 }
                             }
 

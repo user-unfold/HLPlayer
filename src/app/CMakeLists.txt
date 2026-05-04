@@ -2,6 +2,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Qml Quick QuickControls2)
 
 add_executable(hlplayer_app main.cpp
     ${CMAKE_SOURCE_DIR}/resources/resources.qrc
+    ${CMAKE_SOURCE_DIR}/resources/app.rc
 )
 
 target_compile_features(hlplayer_app PRIVATE cxx_std_20)
