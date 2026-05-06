@@ -22,7 +22,7 @@ bool HWEncoderDetector::probeEncoder(const char* name, EncoderInfo& info) {
 std::vector<EncoderInfo> HWEncoderDetector::detectAll() {
     std::vector<EncoderInfo> result;
 
-    EncoderInfo nvenc{HWEncoderType::NVENC, "h264_nvenc", "NVIDIA NVENC H.264", "d3d11va", AV_PIX_FMT_D3D11};
+    EncoderInfo nvenc{HWEncoderType::NVENC, "h264_nvenc", "NVIDIA NVENC H.264", "", AV_PIX_FMT_NONE};
     if (probeEncoder("h264_nvenc", nvenc)) result.push_back(nvenc);
 
     EncoderInfo qsv{HWEncoderType::QSV, "h264_qsv", "Intel QuickSync H.264", "d3d11va", AV_PIX_FMT_D3D11};

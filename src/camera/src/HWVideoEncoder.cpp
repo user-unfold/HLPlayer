@@ -141,15 +141,35 @@ Result<void> HWVideoEncoder::initEncoder() {
     }
 
     AVDictionary* opts = nullptr;
-    if (hwFramesCtx_) {
+    switch (config_.encoderInfo.type) {
+    case HWEncoderType::NVENC:
+        // NVENC accepts CPU frames directly — no hardware context needed.
+        // p4 = medium speed/quality, ll = low latency, vbr = variable bitrate.
         av_dict_set(&opts, "preset", "p4", 0);
         av_dict_set(&opts, "tune", "ll", 0);
         av_dict_set(&opts, "rc", "vbr", 0);
         av_dict_set(&opts, "delay", "0", 0);
         av_dict_set(&opts, "b_ref_mode", "disabled", 0);
-    } else {
+        break;
+    case HWEncoderType::QSV:
+    case HWEncoderType::AMF:
+        // Hardware encoders that need a D3D11 frames context
+        if (hwFramesCtx_) {
+            av_dict_set(&opts, "preset", "p4", 0);
+            av_dict_set(&opts, "tune", "ll", 0);
+            av_dict_set(&opts, "rc", "vbr", 0);
+            av_dict_set(&opts, "delay", "0", 0);
+            av_dict_set(&opts, "b_ref_mode", "disabled", 0);
+        } else {
+            av_dict_set(&opts, "preset", "ultrafast", 0);
+            av_dict_set(&opts, "tune", "zerolatency", 0);
+        }
+        break;
+    default:
+        // Software encoders (x264, etc.)
         av_dict_set(&opts, "preset", "ultrafast", 0);
         av_dict_set(&opts, "tune", "zerolatency", 0);
+        break;
     }
 
     int ret = avcodec_open2(encCtx, codec, &opts);
@@ -177,10 +197,24 @@ Result<void> HWVideoEncoder::init(const HWEncodeConfig& config) {
         spdlog::warn("HWVideoEncoder: hardware context init failed, falling back to software encoder");
         config_.encoderInfo.hwPixFmt = AV_PIX_FMT_NONE;
         config_.encoderInfo.name = "libx264";
+        config_.encoderInfo.type = HWEncoderType::X264;
         config_.encoderInfo.displayName = "x264 Software";
     }
 
-    return initEncoder();
+    auto encResult = initEncoder();
+    if (encResult.hasError() && config_.encoderInfo.type != HWEncoderType::X264) {
+        // Encoder open failed (e.g. NVENC driver too old, QSV unavailable).
+        // Fall back to x264 which is always available.
+        spdlog::warn("HWVideoEncoder: encoder '{}' failed, falling back to x264",
+                     config_.encoderInfo.name);
+        config_.encoderInfo.type = HWEncoderType::X264;
+        config_.encoderInfo.hwPixFmt = AV_PIX_FMT_NONE;
+        config_.encoderInfo.name = "libx264";
+        config_.encoderInfo.displayName = "x264 Software";
+        return initEncoder();
+    }
+
+    return encResult;
 }
 
 Result<std::vector<EncodedPacket>> HWVideoEncoder::encode(const AVFrame* cpuFrame) {
