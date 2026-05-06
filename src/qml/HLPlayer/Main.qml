@@ -897,6 +897,82 @@ onClicked: {
     }
 }
                             }
+
+                            Button {
+                                id: cameraRecordingBtn
+                                flat: true
+                                Layout.preferredWidth: 32
+                                Layout.preferredHeight: 36
+                                background: Rectangle {
+                                    radius: 4
+                                    color: cameraRecordingBtn.hovered ? ThemeManager.surface : "transparent"
+                                }
+                                contentItem: Text {
+                                    anchors.centerIn: parent
+                                    text: "Cam"
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                    color: ThemeManager.accentColor
+                                }
+                                onClicked: {
+                                    console.log("Camera: Creating CameraRecordingPage...");
+                                    var component = Qt.createComponent("file:///D:/HLPlayer/src/camera/qml/CameraRecordingPage.qml");
+                                    if (component.status === Component.Error) {
+                                        console.error("Camera: Component error:", component.errorString());
+                                        showToast("Failed: " + component.errorString());
+                                    } else if (component.status === Component.Ready) {
+                                        var win = component.createObject(root);
+                                        if (win) {
+                                            console.log("Camera: Window created, showing...");
+                                            win.show();
+                                        } else {
+                                            console.error("Camera: Failed to create window");
+                                            showToast("Failed to open Camera Recording");
+                                        }
+                                    } else {
+                                        console.error("Camera: Component error:", component.errorString());
+                                        showToast("Failed to open Camera Recording: " + component.errorString());
+                                    }
+                                }
+                            }
+
+                            Button {
+                                id: streamingBtn
+                                flat: true
+                                Layout.preferredWidth: 32
+                                Layout.preferredHeight: 36
+                                background: Rectangle {
+                                    radius: 4
+                                    color: streamingBtn.hovered ? ThemeManager.surface : "transparent"
+                                }
+                                contentItem: Text {
+                                    anchors.centerIn: parent
+                                    text: "Str"
+                                    font.pixelSize: 10
+                                    font.bold: true
+                                    color: ThemeManager.accentColor
+                                }
+                                onClicked: {
+                                    console.log("Streaming: Creating StreamingPage...");
+                                    var component = Qt.createComponent("file:///D:/HLPlayer/src/camera/qml/StreamingPage.qml");
+                                    if (component.status === Component.Error) {
+                                        console.error("Streaming: Component error:", component.errorString());
+                                        showToast("Failed: " + component.errorString());
+                                    } else if (component.status === Component.Ready) {
+                                        var win = component.createObject(root);
+                                        if (win) {
+                                            console.log("Streaming: Window created, showing...");
+                                            win.show();
+                                        } else {
+                                            console.error("Streaming: Failed to create window");
+                                            showToast("Failed to open Streaming");
+                                        }
+                                    } else {
+                                        console.error("Streaming: Component error:", component.errorString());
+                                        showToast("Failed to open Streaming: " + component.errorString());
+                                    }
+                                }
+                            }
                         }
                     }
                     } // controlsBar Rectangle

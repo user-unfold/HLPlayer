@@ -19,10 +19,30 @@ file(GLOB_RECURSE QML_HEADERS
     ${CMAKE_CURRENT_SOURCE_DIR}/*.hpp
 )
 
+# Add camera QML bridge if BUILD_QML and camera module exists
+if(BUILD_QML AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../camera/src/QMLCameraRecorder.cpp")
+    list(APPEND QML_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../camera/src/QMLCameraRecorder.cpp)
+endif()
+
+if(BUILD_QML AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../camera/include/hlplayer/QMLCameraRecorder.h")
+    list(APPEND QML_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/../camera/include/hlplayer/QMLCameraRecorder.h)
+endif()
+
 # Collect QML files (convert to relative paths for qt6_add_qml_module)
 file(GLOB_RECURSE QML_FILES_ABSOLUTE
     ${CMAKE_CURRENT_SOURCE_DIR}/*.qml
 )
+
+# Camera QML files are loaded at runtime via Qt.createComponent()
+# from the filesystem — they do NOT need to be registered in the QML module.
+# Including them here (with ../ paths) breaks qmlcachegen directory creation.
+# if(BUILD_QML AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../camera/qml")
+#     file(GLOB_RECURSE CAMERA_QML_FILES_ABSOLUTE
+#         ${CMAKE_CURRENT_SOURCE_DIR}/../camera/qml/*.qml
+#     )
+#     list(APPEND QML_FILES_ABSOLUTE ${CAMERA_QML_FILES_ABSOLUTE})
+# endif()
+
 set(QML_FILES "")
 foreach(_qml ${QML_FILES_ABSOLUTE})
     file(RELATIVE_PATH _qml_rel ${CMAKE_CURRENT_SOURCE_DIR} ${_qml})
@@ -60,6 +80,8 @@ target_include_directories(hlplayer_qml
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/../core
+        ${CMAKE_CURRENT_SOURCE_DIR}/../camera/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/../camera/include/hlplayer
         ${CMAKE_SOURCE_DIR}/src/vsr/include
 )
 
@@ -90,6 +112,13 @@ target_link_libraries(hlplayer_qml
         avcodec
         avutil
 )
+
+# Link camera module if BUILD_QML
+if(BUILD_QML)
+    target_link_libraries(hlplayer_qml PRIVATE hlplayer_camera)
+    # Export QMLCameraRecorder symbols (compiled in hlplayer_qml, not hlplayer_camera)
+    target_compile_definitions(hlplayer_qml PRIVATE HLPLAYER_CAMERA_QML_EXPORTS)
+endif()
 
 if(BUILD_VSR)
     target_link_libraries(hlplayer_qml PRIVATE hlplayer_vsr)
@@ -126,13 +155,18 @@ else()
         -Wpedantic
         -Werror
     )
+    # Workaround MinGW ld out-of-memory when linking large shared libraries
+    target_link_options(hlplayer_qml PRIVATE "LINKER:--no-keep-memory")
 endif()
 
 # Export symbols (for Windows DLL)
 if(WIN32)
     target_compile_definitions(hlplayer_qml PRIVATE
         HLPLAYER_QML_EXPORTS
+        BUILD_QML
     )
+else()
+    target_compile_definitions(hlplayer_qml PRIVATE BUILD_QML)
 endif()
 
 # Link D3D11/DXGI on Windows (used by VideoOutputItem)

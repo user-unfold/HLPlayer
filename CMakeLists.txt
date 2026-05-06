@@ -78,11 +78,11 @@ FetchContent_MakeAvailable(benchmark)
 # Compile-time Options
 option(TELEMETRY_ENABLED "Enable OpenTelemetry telemetry" OFF)
 option(TRACE_ENABLED "Enable trace-level logging" OFF)
+
 # ============================================================================
-# Compile-time Options
+# Camera Recording + Streaming Module
 # ============================================================================
-option(TELEMETRY_ENABLED "Enable OpenTelemetry telemetry" OFF)
-option(TRACE_ENABLED "Enable trace-level logging" OFF)
+option(BUILD_CAMERA "Build Camera Recording + Streaming module" ON)
 
 # ============================================================================
 # NCNN (Video Super-Resolution dependency)
@@ -95,6 +95,11 @@ option(BUILD_VSR "Build VSR (Video Super-Resolution) module" OFF)
 add_subdirectory(src/core)
 add_subdirectory(src/extractor)
 add_subdirectory(src/render)
+
+# Camera Recording + Streaming module
+if(BUILD_CAMERA)
+    add_subdirectory(src/camera)
+endif()
 
 option(BUILD_QML "Build Qt6/QML integration module" ON)
 if(BUILD_QML)

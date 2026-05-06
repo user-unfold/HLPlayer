@@ -1,6 +1,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlComponent>
+#include <QQmlContext>
 #include <QQuickWindow>
 #include <QQuickStyle>
 #include <QDir>
@@ -10,6 +11,10 @@
 #include <cstdio>
 
 #include <hlplayer/HLPlayer.h>
+
+#ifdef BUILD_QML
+#include <hlplayer/PreviewRenderer.h>
+#endif
 
 extern void qml_register_types_HLPlayer();
 
@@ -34,6 +39,15 @@ int main(int argc, char *argv[])
     engine.addImportPath(appDir + "/qml");
     engine.addImportPath(appDir + "/../qml");
     engine.addImportPath("D:/HLPlayer/build/src/qml");
+
+    // Expose source root so QML can reference files outside the build tree
+    engine.rootContext()->setContextProperty("sourceRoot", "D:/HLPlayer");
+
+#ifdef BUILD_QML
+    auto* cameraProvider = new hlplayer::CameraPreviewProvider();
+    engine.addImageProvider("camera", cameraProvider);
+    hlplayer::PreviewRenderer::setEngineProvider(cameraProvider);
+#endif
 
     const QString mainQmlPath = appDir + "/../qml/HLPlayer/HLPlayer/Main.qml";
     QQmlComponent component(&engine, QUrl::fromLocalFile(mainQmlPath));

@@ -8,7 +8,7 @@
 #include <hlplayer/NcnnSuperResolution.h>
 #endif
 #include <FFmpegVideoDecoder.h>
-#include <HWVideoEncoder.h>
+#include "../extractor/HWVideoEncoder.h"
 #include <FFmpegMuxer.h>
 
 #include <QFileInfo>

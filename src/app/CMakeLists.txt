@@ -20,6 +20,7 @@ target_link_libraries(hlplayer_app PRIVATE
     Qt6::QuickControls2
     hlplayer_core
     hlplayer_qml
+    hlplayer_camera
 )
 
 # Standard warnings
@@ -27,6 +28,11 @@ if(MSVC)
     target_compile_options(hlplayer_app PRIVATE /W4)
 else()
     target_compile_options(hlplayer_app PRIVATE -Wall -Wextra)
+endif()
+
+# Camera preview image provider (conditional on QML)
+if(BUILD_QML)
+    target_compile_definitions(hlplayer_app PRIVATE BUILD_QML)
 endif()
 
 # Post-build: copy sibling library DLLs to app directory so the executable
@@ -37,6 +43,7 @@ set(_HLPLAYER_DLLS
     $<TARGET_FILE:hlplayer_extractor>
     $<TARGET_FILE:hlplayer_render>
     $<TARGET_FILE:hlplayer_qml>
+    $<TARGET_FILE:hlplayer_camera>
 )
 
 add_custom_command(TARGET hlplayer_app POST_BUILD
