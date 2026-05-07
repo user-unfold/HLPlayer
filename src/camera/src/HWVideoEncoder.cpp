@@ -128,6 +128,8 @@ Result<void> HWVideoEncoder::initEncoder() {
     encCtx->bit_rate = config_.bitrate;
     encCtx->gop_size = config_.gopSize;
     encCtx->max_b_frames = config_.maxBFrames;
+    encCtx->profile = FF_PROFILE_H264_MAIN;
+    encCtx->level = 31;
 
     if (hwFramesCtx_) {
         encCtx->hw_frames_ctx = av_buffer_ref(hwFramesCtx_);
@@ -143,11 +145,9 @@ Result<void> HWVideoEncoder::initEncoder() {
     AVDictionary* opts = nullptr;
     switch (config_.encoderInfo.type) {
     case HWEncoderType::NVENC:
-        // NVENC accepts CPU frames directly — no hardware context needed.
-        // p4 = medium speed/quality, ll = low latency, vbr = variable bitrate.
-        av_dict_set(&opts, "preset", "p4", 0);
+        av_dict_set(&opts, "preset", "p1", 0);
         av_dict_set(&opts, "tune", "ll", 0);
-        av_dict_set(&opts, "rc", "vbr", 0);
+        av_dict_set(&opts, "rc", "cbr", 0);
         av_dict_set(&opts, "delay", "0", 0);
         av_dict_set(&opts, "b_ref_mode", "disabled", 0);
         break;
@@ -171,6 +171,8 @@ Result<void> HWVideoEncoder::initEncoder() {
         av_dict_set(&opts, "tune", "zerolatency", 0);
         break;
     }
+
+    encCtx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
     int ret = avcodec_open2(encCtx, codec, &opts);
     av_dict_free(&opts);
@@ -308,6 +310,77 @@ Result<std::vector<EncodedPacket>> HWVideoEncoder::encode(const AVFrame* cpuFram
 
 Result<std::vector<EncodedPacket>> HWVideoEncoder::flush() {
     return encode(nullptr);
+}
+
+Result<void> HWVideoEncoder::ensureExtradata() {
+    if (!encCtx_) {
+        return Result<void>::error(PlayerError::InvalidState);
+    }
+
+    if (encCtx_->extradata && encCtx_->extradata_size > 0) {
+        spdlog::info("HWVideoEncoder: extradata already present ({} bytes)", encCtx_->extradata_size);
+        return Result<void>::success();
+    }
+
+    spdlog::info("HWVideoEncoder: priming encoder to generate SPS/PPS...");
+
+    AVFrame* frame = av_frame_alloc();
+    if (!frame) return Result<void>::error(PlayerError::DecodeError);
+
+    frame->format = encCtx_->pix_fmt;
+    frame->width  = encCtx_->width;
+    frame->height = encCtx_->height;
+
+    int ret = av_frame_get_buffer(frame, 0);
+    if (ret < 0) {
+        av_frame_free(&frame);
+        return Result<void>::error(PlayerError::DecodeError);
+    }
+
+    // Fill with video black: Y=16, U=V=128
+    if (encCtx_->pix_fmt == AV_PIX_FMT_YUV420P) {
+        memset(frame->data[0], 16,  frame->width  * frame->height);
+        memset(frame->data[1], 128, frame->width  * frame->height / 4);
+        memset(frame->data[2], 128, frame->width  * frame->height / 4);
+    } else if (encCtx_->pix_fmt == AV_PIX_FMT_NV12) {
+        memset(frame->data[0], 16,  frame->width  * frame->height);
+        memset(frame->data[1], 128, frame->width  * frame->height / 2);
+    }
+    frame->pts = 0;
+
+    ret = avcodec_send_frame(encCtx_, frame);
+    av_frame_free(&frame);
+    if (ret < 0) {
+        char errBuf[AV_ERROR_MAX_STRING_SIZE] = {0};
+        av_strerror(ret, errBuf, sizeof(errBuf));
+        spdlog::error("HWVideoEncoder: priming avcodec_send_frame failed: {}", errBuf);
+        return Result<void>::error(PlayerError::DecodeError);
+    }
+
+    avcodec_send_frame(encCtx_, nullptr);
+
+    AVPacket* pkt = av_packet_alloc();
+    if (!pkt) return Result<void>::error(PlayerError::DecodeError);
+
+    while (avcodec_receive_packet(encCtx_, pkt) >= 0) {
+        av_packet_unref(pkt);
+    }
+    av_packet_free(&pkt);
+
+    if (encCtx_->extradata && encCtx_->extradata_size > 0) {
+        std::string hex;
+        int n = std::min(encCtx_->extradata_size, 32);
+        for (int i = 0; i < n; ++i) {
+            char buf[4];
+            snprintf(buf, sizeof(buf), "%02x ", encCtx_->extradata[i]);
+            hex += buf;
+        }
+        spdlog::info("HWVideoEncoder: primer generated extradata ({} bytes): {}", encCtx_->extradata_size, hex);
+    } else {
+        spdlog::warn("HWVideoEncoder: primer did not generate extradata");
+    }
+
+    return Result<void>::success();
 }
 
 const AVCodecContext* HWVideoEncoder::context() const {

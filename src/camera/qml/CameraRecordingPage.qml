@@ -118,6 +118,94 @@ ApplicationWindow {
             opacity: 0.1
         }
 
+        // --- Stream section ---
+        ColumnLayout {
+            Layout.fillWidth: true
+            spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 12
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 6
+
+                    Text {
+                        text: qsTr("Stream Server")
+                        font.pixelSize: 12
+                        color: ThemeManager.onSurface
+                        opacity: 0.7
+                    }
+
+                    TextField {
+                        id: streamServerField
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 36
+                        placeholderText: qsTr("rtmp://a.rtmp.youtube.com/live2")
+                        color: ThemeManager.onSurface
+                        font.pixelSize: 13
+
+                        background: Rectangle {
+                            color: ThemeManager.surfaceVariant
+                            radius: 6
+                            border.color: streamServerField.activeFocus ? ThemeManager.accentColor : ThemeManager.onSurface
+                            border.width: streamServerField.activeFocus ? 2 : 1
+                            opacity: 0.5
+                        }
+                    }
+                }
+
+                ColumnLayout {
+                    Layout.preferredWidth: 200
+                    spacing: 6
+
+                    Text {
+                        text: qsTr("Stream Key")
+                        font.pixelSize: 12
+                        color: ThemeManager.onSurface
+                        opacity: 0.7
+                    }
+
+                    TextField {
+                        id: streamKeyField
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 36
+                        echoMode: TextInput.Password
+                        placeholderText: qsTr("your-stream-key")
+                        color: ThemeManager.onSurface
+                        font.pixelSize: 13
+
+                        background: Rectangle {
+                            color: ThemeManager.surfaceVariant
+                            radius: 6
+                            border.color: streamKeyField.activeFocus ? ThemeManager.accentColor : ThemeManager.onSurface
+                            border.width: streamKeyField.activeFocus ? 2 : 1
+                            opacity: 0.5
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: streamServerField.text !== "" && streamKeyField.text !== ""
+                      ? streamServerField.text + "/" + streamKeyField.text
+                      : qsTr("Leave empty for file-only recording")
+                font.pixelSize: 11
+                color: ThemeManager.onSurface
+                opacity: streamServerField.text !== "" && streamKeyField.text !== "" ? 0.8 : 0.4
+                elide: Text.ElideMiddle
+                Layout.fillWidth: true
+            }
+        }
+
+        Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 1
+            color: ThemeManager.onSurface
+            opacity: 0.1
+        }
+
         Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -238,8 +326,19 @@ ApplicationWindow {
                             String(now.getMinutes()).padStart(2, '0') + "-" +
                             String(now.getSeconds()).padStart(2, '0')
                         var outputPath = "D:/HLPlayer/recordings/recording_" + timestamp + ".mp4"
-                        recorder.startRecording(outputPath, 1280, 720, 30, 2000000,
-                                                 cameraCombo.currentText, micCombo.currentText)
+                        var streamUrl = streamServerField.text.trim()
+                        var streamKey = streamKeyField.text.trim()
+
+                        if (streamUrl !== "" && streamKey !== "") {
+                            var fullStreamUrl = streamUrl.endsWith("/") ? streamUrl + streamKey : streamUrl + "/" + streamKey
+                            var mode = 2  // Both: record + stream
+                            recorder.startRecordingWithStream(outputPath, fullStreamUrl, mode,
+                                1280, 720, 30, 2000000,
+                                cameraCombo.currentText, micCombo.currentText)
+                        } else {
+                            recorder.startRecording(outputPath, 1280, 720, 30, 2000000,
+                                                     cameraCombo.currentText, micCombo.currentText)
+                        }
                     }
                 }
             }

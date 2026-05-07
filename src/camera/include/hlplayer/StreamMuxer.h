@@ -65,6 +65,9 @@ private:
     mutable std::mutex mutex_;
     std::atomic<bool> open_{false};
     std::atomic<bool> headerWritten_{false};
+    std::atomic<bool> headerFailed_{false};
+    std::atomic<bool> writeFailed_{false};
+    std::atomic<int> consecutiveWriteErrors_{0};
     std::atomic<bool> abortFlag_{false};
     AVFormatContextPtr formatCtx_;
     std::vector<AVStream*> streams_;

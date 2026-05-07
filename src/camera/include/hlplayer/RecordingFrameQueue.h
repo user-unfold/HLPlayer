@@ -66,12 +66,17 @@ public:
         if (shutdown_ && count_ == 0)
             return nullptr;
 
-        AVFrame* frame = slots_[readIdx_];
+        // Move frame data out of the slot so the producer can safely
+        // reuse this slot without corrupting data the consumer still
+        // holds.  The caller owns the returned frame and must free it
+        // with av_frame_free().
+        AVFrame* result = av_frame_alloc();
+        av_frame_move_ref(result, slots_[readIdx_]);
         readIdx_ = (readIdx_ + 1) % Capacity;
         --count_;
 
         notFull_.notify_one();
-        return frame;
+        return result;
     }
 
     void shutdown() {

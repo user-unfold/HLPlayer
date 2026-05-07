@@ -50,6 +50,8 @@ public:
     /// Check if encoder is ready for encoding.
     bool isOpen() const;
 
+    const AVCodecContext* context() const { return codecCtx_.get(); }
+
 private:
     AVCodecContextPtr codecCtx_;
     SwrContext* swrCtx_ = nullptr;

@@ -221,16 +221,13 @@ void StreamingPipeline::streamingLoop() {
         encodedPkt.streamIndex = dstIdx;
         encodedPkt.isKeyFrame = (packet->flags & AV_PKT_FLAG_KEY) != 0;
 
-        double tb = av_q2d(srcTb);
-        encodedPkt.pts = tb * static_cast<double>((packet->pts != AV_NOPTS_VALUE) ? packet->pts : packet->dts);
-        encodedPkt.dts = tb * static_cast<double>((packet->dts != AV_NOPTS_VALUE) ? packet->dts : packet->pts);
-        if (packet->duration > 0) {
-            encodedPkt.duration = tb * static_cast<double>(packet->duration);
-        }
+        encodedPkt.pts = (packet->pts != AV_NOPTS_VALUE) ? packet->pts : packet->dts;
+        encodedPkt.dts = (packet->dts != AV_NOPTS_VALUE) ? packet->dts : packet->pts;
+        encodedPkt.duration = packet->duration;
 
         auto writeResult = muxer_.writePacket(encodedPkt);
         if (writeResult.hasError()) {
-            spdlog::error("StreamingPipeline: write failed (stream {}, pts {:.3f})",
+            spdlog::error("StreamingPipeline: write failed (stream {}, pts {})",
                           dstIdx, encodedPkt.pts);
             state_.store(StreamingState::Failed);
             if (callback_) {
@@ -245,12 +242,13 @@ void StreamingPipeline::streamingLoop() {
         auto now = steady_clock::now();
         double sinceLast = duration<double>(now - lastCallbackTime).count();
         if (sinceLast >= 0.1) {
+            double ptsSeconds = av_q2d(srcTb) * static_cast<double>(encodedPkt.pts);
             {
                 std::lock_guard<std::mutex> lock(statsMutex_);
-                stats_.streamedDuration = encodedPkt.pts;
+                stats_.streamedDuration = ptsSeconds;
                 stats_.currentBitrate = (bytesSinceLastUpdate * 8.0) / sinceLast;
                 if (stats_.totalDuration > 0.0) {
-                    stats_.progress = std::min(encodedPkt.pts / stats_.totalDuration, 1.0);
+                    stats_.progress = std::min(ptsSeconds / stats_.totalDuration, 1.0);
                 }
             }
             bytesSinceLastUpdate = 0;

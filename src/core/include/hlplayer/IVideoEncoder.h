@@ -4,6 +4,9 @@
 #include <hlplayer/Result.h>
 #include <hlplayer/GpuFrameContract.h>
 #include <hlplayer/HWDecoder.h>
+extern "C" {
+#include <libavutil/avutil.h>
+}
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -33,11 +36,13 @@ struct EncoderConfig {
 };
 
 /// Encoded packet output from encoder.
+/// pts/dts/duration are in the encoder's time_base units (raw int64_t).
+/// Callers must rescale to the output stream time_base via av_packet_rescale_ts.
 struct EncodedPacket {
     std::vector<uint8_t> data;
-    double pts = 0.0;
-    double dts = 0.0;
-    double duration = 0.0;
+    int64_t pts = AV_NOPTS_VALUE;
+    int64_t dts = AV_NOPTS_VALUE;
+    int64_t duration = 0;
     bool isKeyFrame = false;
     uint32_t streamIndex = 0;
 };

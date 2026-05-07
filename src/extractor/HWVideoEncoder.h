@@ -99,7 +99,7 @@ private:
                                        AVPixelFormat swFormat);
 
     /// Map an AVPacket to an EncodedPacket.
-    EncodedPacket convertPacket(AVPacket* pkt, double timeBase);
+    EncodedPacket convertPacket(AVPacket* pkt);
 
     /// Build an AVFrame from a GpuFrame for GPU texture input path.
     Result<AVFramePtr> frameFromGpuTexture(const GpuFrame& frame);

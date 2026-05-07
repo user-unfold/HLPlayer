@@ -378,10 +378,9 @@ void RecordingPipeline::audioThreadFunc() {
             pkt->size = static_cast<int>(encPkt.data.size());
             pkt->stream_index = audioStreamIndex_;
 
-            double tb = av_q2d(outputCtx_->streams[audioStreamIndex_]->time_base);
-            pkt->pts = static_cast<int64_t>(encPkt.pts / tb);
-            pkt->dts = static_cast<int64_t>(encPkt.dts / tb);
-            pkt->duration = static_cast<int>(encPkt.duration / tb);
+            pkt->pts = encPkt.pts;
+            pkt->dts = encPkt.dts;
+            pkt->duration = encPkt.duration;
 
             if (encPkt.isKeyFrame) {
                 pkt->flags |= AV_PKT_FLAG_KEY;
@@ -399,10 +398,9 @@ void RecordingPipeline::audioThreadFunc() {
             pkt->size = static_cast<int>(encPkt.data.size());
             pkt->stream_index = audioStreamIndex_;
 
-            double tb = av_q2d(outputCtx_->streams[audioStreamIndex_]->time_base);
-            pkt->pts = static_cast<int64_t>(encPkt.pts / tb);
-            pkt->dts = static_cast<int64_t>(encPkt.dts / tb);
-            pkt->duration = static_cast<int>(encPkt.duration / tb);
+            pkt->pts = encPkt.pts;
+            pkt->dts = encPkt.dts;
+            pkt->duration = encPkt.duration;
 
             if (encPkt.isKeyFrame) {
                 pkt->flags |= AV_PKT_FLAG_KEY;

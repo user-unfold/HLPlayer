@@ -70,7 +70,7 @@ Result<void> RecordingPipelineV2::start(const RecordingConfig& config, StateCall
     hwConfig.fps = fps_;
     hwConfig.bitrate = config.videoBitrate;
     hwConfig.gopSize = fps_ * 2;
-    hwConfig.maxBFrames = 2;
+    hwConfig.maxBFrames = (config.outputMode == RecordingConfig::OutputMode::File) ? 2 : 0;
     hwConfig.encoderInfo = encoderInfo_;
     auto encResult = videoEncoder_->init(hwConfig);
     if (encResult.hasError()) {
@@ -96,6 +96,23 @@ Result<void> RecordingPipelineV2::start(const RecordingConfig& config, StateCall
         return Result<void>::error(PlayerError::Unknown);
     }
 
+    if (!config.micDevicePath.empty()) {
+        audioCapture_ = std::make_unique<AudioCapture>();
+        audioEncoder_ = std::make_unique<AudioEncoder>();
+
+        auto audioEncResult = audioEncoder_->init(config.audioSampleRate, config.audioChannels, config.audioBitrate);
+        if (audioEncResult.hasError()) {
+            spdlog::warn("RecordingPipelineV2: failed to init audio encoder");
+            audioEncoder_.reset();
+            audioCapture_.reset();
+        }
+    }
+
+    auto primeResult = videoEncoder_->ensureExtradata();
+    if (primeResult.hasError()) {
+        spdlog::error("RecordingPipelineV2: failed to prime video encoder extradata");
+    }
+
     AVStream* videoStream = avformat_new_stream(outputCtx_, nullptr);
     if (!videoStream) {
         spdlog::error("RecordingPipelineV2: failed to create video stream");
@@ -115,10 +132,7 @@ Result<void> RecordingPipelineV2::start(const RecordingConfig& config, StateCall
     }
     videoStream->time_base = encCtx->time_base;
 
-    if (!config.micDevicePath.empty()) {
-        audioCapture_ = std::make_unique<AudioCapture>();
-        audioEncoder_ = std::make_unique<AudioEncoder>();
-
+    if (audioEncoder_) {
         AVStream* audioStream = avformat_new_stream(outputCtx_, nullptr);
         if (!audioStream) {
             spdlog::warn("RecordingPipelineV2: failed to create audio stream, recording video only");
@@ -126,12 +140,9 @@ Result<void> RecordingPipelineV2::start(const RecordingConfig& config, StateCall
             audioCapture_.reset();
         } else {
             audioStreamIndex_ = audioStream->index;
-            audioStream->codecpar->codec_type = AVMEDIA_TYPE_AUDIO;
-            audioStream->codecpar->codec_id = AV_CODEC_ID_AAC;
-            audioStream->codecpar->sample_rate = config.audioSampleRate;
-            audioStream->codecpar->bit_rate = config.audioBitrate;
-            av_channel_layout_default(&audioStream->codecpar->ch_layout, config.audioChannels);
-            audioStream->time_base = AVRational{1, config.audioSampleRate};
+            const AVCodecContext* audioEncCtx = audioEncoder_->context();
+            avcodec_parameters_from_context(audioStream->codecpar, audioEncCtx);
+            audioStream->time_base = audioEncCtx->time_base;
         }
     }
 
@@ -166,10 +177,87 @@ Result<void> RecordingPipelineV2::start(const RecordingConfig& config, StateCall
     headerWritten_ = true;
     trailerWritten_ = false;
 
+    // --- Stream output setup (RTMP/SRT) ---
+    bool useStream = (config.outputMode == RecordingConfig::OutputMode::Stream ||
+                      config.outputMode == RecordingConfig::OutputMode::Both);
+    if (useStream && !config.streamUrl.empty()) {
+        spdlog::info("RecordingPipelineV2: attempting stream connection to {}", config.streamUrl);
+        streamMuxer_ = std::make_unique<StreamMuxer>();
+        std::string streamUrl = config.streamUrl;
+        auto streamResult = streamMuxer_->open(streamUrl, config.streamProtocol);
+        spdlog::info("RecordingPipelineV2: stream open result: {}", streamResult.hasError() ? "FAILED" : "OK");
+        if (streamResult.hasError()) {
+            spdlog::error("RecordingPipelineV2: failed to open stream to {}", streamUrl);
+            streamMuxer_.reset();
+            if (config.outputMode == RecordingConfig::OutputMode::Stream) {
+                // Stream-only mode: nothing to record, fail
+                cleanup();
+                notifyState();
+                return Result<void>::error(PlayerError::NetworkError);
+            }
+            // Both mode: continue with file-only recording
+            spdlog::warn("RecordingPipelineV2: stream failed, continuing with file-only recording");
+        } else {
+            const AVCodecContext* vctx = videoEncoder_->context();
+
+            // Log encoder extradata for debugging SPS/PPS issues
+            spdlog::info("RTMP video: encoder extradata_size={}, profile={}, level={}, pix_fmt={}",
+                         vctx->extradata_size, vctx->profile, vctx->level, static_cast<int>(vctx->pix_fmt));
+            if (vctx->extradata && vctx->extradata_size > 0) {
+                std::string hex;
+                int n = std::min(vctx->extradata_size, 32);
+                for (int i = 0; i < n; ++i) {
+                    char buf[4];
+                    snprintf(buf, sizeof(buf), "%02x ", vctx->extradata[i]);
+                    hex += buf;
+                }
+                spdlog::info("RTMP video: encoder extradata ({} bytes): {}", vctx->extradata_size, hex);
+            }
+
+            // Use encoder's codec params directly (not from MP4 output which may
+            // have been modified by avformat_write_header).  SRS fails to parse
+            // the AVC sequence header when the extradata is corrupted or altered.
+            AVCodecParameters* videoParams = avcodec_parameters_alloc();
+            avcodec_parameters_from_context(videoParams, vctx);
+            auto vAddResult = streamMuxer_->addStream(vctx->codec_id, vctx->time_base, videoParams);
+
+            // Log what addStream actually received
+            spdlog::info("RTMP video: addStream codecpar extradata_size={}, codec_tag={}",
+                         videoParams->extradata_size, videoParams->codec_tag);
+            avcodec_parameters_free(&videoParams);
+
+            if (vAddResult.hasError()) {
+                spdlog::error("RecordingPipelineV2: failed to add video stream to muxer");
+                streamMuxer_.reset();
+            } else if (audioEncoder_) {
+                const AVCodecContext* audioEncCtx = audioEncoder_->context();
+                AVRational audioTb = audioEncCtx->time_base;
+
+                // Also use encoder params directly for audio
+                AVCodecParameters* audioParams = avcodec_parameters_alloc();
+                avcodec_parameters_from_context(audioParams, audioEncCtx);
+                auto aAddResult = streamMuxer_->addStream(AV_CODEC_ID_AAC, audioTb, audioParams);
+                spdlog::info("RTMP audio: addStream codecpar extradata_size={}", audioParams->extradata_size);
+                avcodec_parameters_free(&audioParams);
+
+                if (aAddResult.hasError()) {
+                    spdlog::warn("RecordingPipelineV2: failed to add audio stream, continuing video-only");
+                }
+            }
+
+            if (streamMuxer_) {
+                spdlog::info("RecordingPipelineV2: stream output opened to {} ({})",
+                             streamUrl, config.streamProtocol == StreamingProtocol::RTMP ? "RTMP" : "SRT");
+            }
+        }
+    }
+
     frameQueue_ = std::make_unique<RecordingFrameQueue>();
 
+    spdlog::info("RecordingPipelineV2: opening camera...");
     camera_ = std::make_unique<CameraSource>();
     auto camResult = camera_->open(config.cameraDevicePath, width_, height_, fps_);
+    spdlog::info("RecordingPipelineV2: camera open result: {}", camResult.hasError() ? "FAILED" : "OK");
     if (camResult.hasError()) {
         spdlog::error("RecordingPipelineV2: failed to open camera");
         cleanup();
@@ -183,13 +271,6 @@ Result<void> RecordingPipelineV2::start(const RecordingConfig& config, StateCall
             spdlog::warn("RecordingPipelineV2: failed to open mic, recording without audio");
             audioCapture_.reset();
             audioEncoder_.reset();
-        } else {
-            auto audioEncResult = audioEncoder_->init(config.audioSampleRate, config.audioChannels, config.audioBitrate);
-            if (audioEncResult.hasError()) {
-                spdlog::warn("RecordingPipelineV2: failed to init audio encoder");
-                audioCapture_.reset();
-                audioEncoder_.reset();
-            }
         }
     }
 
@@ -206,6 +287,9 @@ Result<void> RecordingPipelineV2::start(const RecordingConfig& config, StateCall
     }
 
     state_ = RecordingState::Recording;
+    spdlog::info("RecordingPipelineV2: about to notify state (threads={}/{}/{})",
+                 captureThread_.joinable(), encodeThread_.joinable(),
+                 audioThread_.joinable());
     notifyState();
 
     spdlog::info("RecordingPipelineV2: started recording to {}", config.outputPath);
@@ -250,6 +334,10 @@ Result<void> RecordingPipelineV2::stop() {
         std::lock_guard<std::mutex> lock(writeMutex_);
         av_write_trailer(outputCtx_);
         trailerWritten_ = true;
+    }
+
+    if (streamMuxer_) {
+        streamMuxer_->close();
     }
 
     cleanup();
@@ -346,8 +434,16 @@ void RecordingPipelineV2::captureThreadFunc() {
         return;
     }
 
+    using Clock = std::chrono::high_resolution_clock;
+    double accReadUs = 0, accPreviewUs = 0, accConvertUs = 0, accPushUs = 0;
+    int statCount = 0;
+
     while (running_.load()) {
+        auto t0 = Clock::now();
         auto result = camera_->readFrame();
+        auto t1 = Clock::now();
+        accReadUs += std::chrono::duration<double, std::micro>(t1 - t0).count();
+
         if (result.hasError()) {
             if (running_.load()) {
                 spdlog::error("RecordingPipelineV2: camera readFrame error");
@@ -373,7 +469,7 @@ void RecordingPipelineV2::captureThreadFunc() {
             if (srcFmt != AV_PIX_FMT_YUV420P) {
                 swsCtx = sws_getContext(srcFrame->width, srcFrame->height, srcFmt,
                                          width_, height_, AV_PIX_FMT_YUV420P,
-                                         SWS_BILINEAR, nullptr, nullptr, nullptr);
+                                         SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
                 if (!swsCtx) {
                     spdlog::error("RecordingPipelineV2: sws_getContext failed for {}→yuv420p",
                                   av_get_pix_fmt_name(srcFmt));
@@ -384,10 +480,18 @@ void RecordingPipelineV2::captureThreadFunc() {
                 previewRenderer_->setSourceFormat(static_cast<int>(srcFmt));
         }
 
+        auto tp0 = Clock::now();
         if (previewRenderer_ && srcFrame->data[0]) {
-            previewRenderer_->onFrame(srcFrame->data[0], srcFrame->width, srcFrame->height, srcFrame->linesize[0]);
+            bool paused = paused_.load();
+            bool previewFrame = paused || (frameIdx % 6 == 0);
+            if (previewFrame) {
+                previewRenderer_->onFrame(srcFrame->data[0], srcFrame->width, srcFrame->height, srcFrame->linesize[0]);
+            }
         }
+        auto tp1 = Clock::now();
+        accPreviewUs += std::chrono::duration<double, std::micro>(tp1 - tp0).count();
 
+        auto tc0 = Clock::now();
         AVFrame* frameToQueue = yuvFrame;
         if (av_frame_make_writable(yuvFrame) < 0) {
             spdlog::error("RecordingPipelineV2: av_frame_make_writable failed");
@@ -403,8 +507,19 @@ void RecordingPipelineV2::captureThreadFunc() {
             av_frame_copy(yuvFrame, srcFrame);
         }
         yuvFrame->pts = frameIdx++;
+        auto tc1 = Clock::now();
+        accConvertUs += std::chrono::duration<double, std::micro>(tc1 - tc0).count();
 
         if (!frameQueue_->push(frameToQueue)) break;
+        auto tEnd = Clock::now();
+        accPushUs += std::chrono::duration<double, std::micro>(tEnd - tc1).count();
+
+        if (++statCount % 30 == 0) {
+            spdlog::info("capture stats [{} frames]: read={:.0f}us  preview={:.0f}us  convert={:.0f}us  push={:.0f}us  total={:.0f}us",
+                         statCount, accReadUs/30, accPreviewUs/30, accConvertUs/30, accPushUs/30,
+                         (accReadUs+accPreviewUs+accConvertUs+accPushUs)/30);
+            accReadUs = accPreviewUs = accConvertUs = accPushUs = 0;
+        }
     }
 
     if (swsCtx) sws_freeContext(swsCtx);
@@ -421,38 +536,18 @@ void RecordingPipelineV2::encodeThreadFunc() {
         static int encLogCounter = 0;
         if (++encLogCounter % 30 == 1)
             spdlog::info("RecordingPipelineV2: encoded {} frames (latest pts={})", encLogCounter, frame->pts);
-        av_frame_unref(frame);
+        av_frame_free(&frame);
         if (encodeResult.hasError()) {
             static int encErrCounter = 0;
             if (++encErrCounter % 30 == 1)
                 spdlog::error("RecordingPipelineV2: video encode failed ({} errors so far)", encErrCounter);
-            // Flush encoder to clear error state, otherwise all subsequent
-            // avcodec_send_frame calls will also fail ("Invalid argument").
-            videoEncoder_->flush();
             continue;
         }
 
         for (const auto& encPkt : encodeResult.value()) {
-            AVPacket* pkt = av_packet_alloc();
-            if (!pkt) continue;
-            av_new_packet(pkt, static_cast<int>(encPkt.data.size()));
-            memcpy(pkt->data, encPkt.data.data(), encPkt.data.size());
-            pkt->stream_index = videoStreamIndex_;
-            pkt->pts = encPkt.pts;
-            pkt->dts = encPkt.dts;
-            pkt->duration = encPkt.duration;
-            if (encPkt.isKeyFrame) pkt->flags |= AV_PKT_FLAG_KEY;
-
-            if (outputCtx_->streams[videoStreamIndex_]) {
-                av_packet_rescale_ts(pkt, videoEncoder_->context()->time_base,
-                                     outputCtx_->streams[videoStreamIndex_]->time_base);
-            }
-
-            {
-                std::lock_guard<std::mutex> lock(writeMutex_);
-                av_interleaved_write_frame(outputCtx_, pkt);
-            }
-            av_packet_free(&pkt);
+            EncodedPacket encPktCopy = encPkt;
+            encPktCopy.streamIndex = static_cast<uint32_t>(videoStreamIndex_);
+            writeVideoPacket(encPktCopy);
         }
 
         frameCount_++;
@@ -461,27 +556,9 @@ void RecordingPipelineV2::encodeThreadFunc() {
     auto flushResult = videoEncoder_->flush();
     if (!flushResult.hasError()) {
         for (const auto& encPkt : flushResult.value()) {
-            AVPacket* pkt = av_packet_alloc();
-            if (!pkt) continue;
-            av_new_packet(pkt, static_cast<int>(encPkt.data.size()));
-            memcpy(pkt->data, encPkt.data.data(), encPkt.data.size());
-            pkt->stream_index = videoStreamIndex_;
-            pkt->pts = encPkt.pts;
-            pkt->dts = encPkt.dts;
-            pkt->duration = encPkt.duration;
-            if (encPkt.isKeyFrame) pkt->flags |= AV_PKT_FLAG_KEY;
-
-            if (outputCtx_ && videoStreamIndex_ >= 0 &&
-                static_cast<unsigned>(videoStreamIndex_) < outputCtx_->nb_streams) {
-                av_packet_rescale_ts(pkt, videoEncoder_->context()->time_base,
-                                     outputCtx_->streams[videoStreamIndex_]->time_base);
-            }
-
-            {
-                std::lock_guard<std::mutex> lock(writeMutex_);
-                av_interleaved_write_frame(outputCtx_, pkt);
-            }
-            av_packet_free(&pkt);
+            EncodedPacket encPktCopy = encPkt;
+            encPktCopy.streamIndex = static_cast<uint32_t>(videoStreamIndex_);
+            writeVideoPacket(encPktCopy);
         }
     }
 
@@ -536,56 +613,78 @@ void RecordingPipelineV2::audioThreadFunc() {
         if (encResult.hasError()) continue;
 
         for (const auto& encPkt : encResult.value()) {
-            AVPacket* pkt = av_packet_alloc();
-            if (!pkt) continue;
-            av_new_packet(pkt, static_cast<int>(encPkt.data.size()));
-            memcpy(pkt->data, encPkt.data.data(), encPkt.data.size());
-            pkt->stream_index = audioStreamIndex_;
-
-            double tb = av_q2d(outputCtx_->streams[audioStreamIndex_]->time_base);
-            pkt->pts = static_cast<int64_t>(encPkt.pts / tb);
-            pkt->dts = static_cast<int64_t>(encPkt.dts / tb);
-            pkt->duration = static_cast<int>(encPkt.duration / tb);
-
-            if (encPkt.isKeyFrame) {
-                pkt->flags |= AV_PKT_FLAG_KEY;
-            }
-
-            {
-                std::lock_guard<std::mutex> lock(writeMutex_);
-                av_interleaved_write_frame(outputCtx_, pkt);
-            }
-            av_packet_free(&pkt);
+            EncodedPacket encPktCopy = encPkt;
+            encPktCopy.streamIndex = static_cast<uint32_t>(audioStreamIndex_);
+            writeAudioPacket(encPktCopy);
         }
     }
 
     auto flushResult = audioEncoder_->flush();
     if (!flushResult.hasError()) {
         for (const auto& encPkt : flushResult.value()) {
-            AVPacket* pkt = av_packet_alloc();
-            if (!pkt) continue;
-            av_new_packet(pkt, static_cast<int>(encPkt.data.size()));
-            memcpy(pkt->data, encPkt.data.data(), encPkt.data.size());
-            pkt->stream_index = audioStreamIndex_;
-
-            double tb = av_q2d(outputCtx_->streams[audioStreamIndex_]->time_base);
-            pkt->pts = static_cast<int64_t>(encPkt.pts / tb);
-            pkt->dts = static_cast<int64_t>(encPkt.dts / tb);
-            pkt->duration = static_cast<int>(encPkt.duration / tb);
-
-            if (encPkt.isKeyFrame) {
-                pkt->flags |= AV_PKT_FLAG_KEY;
-            }
-
-            {
-                std::lock_guard<std::mutex> lock(writeMutex_);
-                av_interleaved_write_frame(outputCtx_, pkt);
-            }
-            av_packet_free(&pkt);
+            EncodedPacket encPktCopy = encPkt;
+            encPktCopy.streamIndex = static_cast<uint32_t>(audioStreamIndex_);
+            writeAudioPacket(encPktCopy);
         }
     }
 
     spdlog::info("RecordingPipelineV2: audio thread exited");
+}
+
+void RecordingPipelineV2::writeVideoPacket(const EncodedPacket& encPkt) {
+    bool useFile = (config_.outputMode == RecordingConfig::OutputMode::File ||
+                    config_.outputMode == RecordingConfig::OutputMode::Both);
+    bool useStream = (config_.outputMode == RecordingConfig::OutputMode::Stream ||
+                      config_.outputMode == RecordingConfig::OutputMode::Both);
+
+    if (useFile) {
+        AVPacket* pkt = av_packet_alloc();
+        if (!pkt) return;
+        av_new_packet(pkt, static_cast<int>(encPkt.data.size()));
+        memcpy(pkt->data, encPkt.data.data(), encPkt.data.size());
+        pkt->stream_index = videoStreamIndex_;
+        pkt->pts = encPkt.pts;
+        pkt->dts = encPkt.dts;
+        pkt->duration = encPkt.duration;
+        if (encPkt.isKeyFrame) pkt->flags |= AV_PKT_FLAG_KEY;
+        {
+            std::lock_guard<std::mutex> lock(writeMutex_);
+            av_interleaved_write_frame(outputCtx_, pkt);
+        }
+        av_packet_free(&pkt);
+    }
+
+    if (useStream && streamMuxer_) {
+        streamMuxer_->writePacket(encPkt);
+    }
+}
+
+void RecordingPipelineV2::writeAudioPacket(const EncodedPacket& encPkt) {
+    bool useFile = (config_.outputMode == RecordingConfig::OutputMode::File ||
+                    config_.outputMode == RecordingConfig::OutputMode::Both);
+    bool useStream = (config_.outputMode == RecordingConfig::OutputMode::Stream ||
+                      config_.outputMode == RecordingConfig::OutputMode::Both);
+
+    if (useFile) {
+        AVPacket* pkt = av_packet_alloc();
+        if (!pkt) return;
+        av_new_packet(pkt, static_cast<int>(encPkt.data.size()));
+        memcpy(pkt->data, encPkt.data.data(), encPkt.data.size());
+        pkt->stream_index = audioStreamIndex_;
+        pkt->pts = encPkt.pts;
+        pkt->dts = encPkt.dts;
+        pkt->duration = encPkt.duration;
+        if (encPkt.isKeyFrame) pkt->flags |= AV_PKT_FLAG_KEY;
+        {
+            std::lock_guard<std::mutex> lock(writeMutex_);
+            av_interleaved_write_frame(outputCtx_, pkt);
+        }
+        av_packet_free(&pkt);
+    }
+
+    if (useStream && streamMuxer_) {
+        streamMuxer_->writePacket(encPkt);
+    }
 }
 
 void RecordingPipelineV2::notifyState() {
@@ -626,6 +725,7 @@ void RecordingPipelineV2::cleanup() {
     audioCapture_.reset();
     camera_.reset();
     frameQueue_.reset();
+    streamMuxer_.reset();
 
     videoStreamIndex_ = -1;
     audioStreamIndex_ = -1;

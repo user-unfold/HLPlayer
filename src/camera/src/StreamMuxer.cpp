@@ -16,6 +16,7 @@ using namespace hlplayer::ffmpeg;
 
 StreamMuxer::StreamMuxer() {
     av_log_set_level(AV_LOG_ERROR);
+    avformat_network_init();
 }
 
 StreamMuxer::~StreamMuxer() {
@@ -52,48 +53,44 @@ Result<void> StreamMuxer::open(const std::string& url, StreamingProtocol protoco
     url_ = url;
     protocol_ = protocol;
 
-    const char* formatName = nullptr;
-    if (protocol == StreamingProtocol::RTMP) {
-        formatName = "flv";
-    } else if (protocol == StreamingProtocol::SRT) {
-        formatName = "mpegts";
-    } else {
-        spdlog::error("StreamMuxer::open - unsupported protocol: {}", static_cast<int>(protocol));
-        return Result<void>::error(PlayerError::UnsupportedFormat);
-    }
+    spdlog::info("StreamMuxer::open step1: alloc context for {}", url);
 
-    const AVOutputFormat* outputFormat = av_guess_format(formatName, nullptr, nullptr);
-    if (!outputFormat) {
-        spdlog::error("StreamMuxer::open - av_guess_format failed for format: {}", formatName);
-        return Result<void>::error(PlayerError::UnsupportedFormat);
+    const AVOutputFormat* forceFormat = nullptr;
+    if (protocol == StreamingProtocol::RTMP || url.find("rtmp://") == 0 || url.find("rtmps://") == 0) {
+        forceFormat = av_guess_format("flv", nullptr, nullptr);
+        if (!forceFormat) {
+            spdlog::error("StreamMuxer::open - FLV format not available for RTMP");
+            return Result<void>::error(PlayerError::UnsupportedFormat);
+        }
     }
 
     AVFormatContext* rawCtx = nullptr;
-    int ret = avformat_alloc_output_context2(&rawCtx, outputFormat, nullptr, url.c_str());
+    int ret = avformat_alloc_output_context2(&rawCtx, nullptr, forceFormat ? "flv" : nullptr, url.c_str());
     if (ret < 0 || !rawCtx) {
         char errBuf[AV_ERROR_MAX_STRING_SIZE] = {0};
         av_strerror(ret, errBuf, sizeof(errBuf));
         spdlog::error("StreamMuxer::open - avformat_alloc_output_context2 failed: {}", errBuf);
         return Result<void>::error(PlayerError::Unknown);
     }
+    spdlog::info("StreamMuxer::open step2: alloc_context OK, oformat={}", rawCtx->oformat->name);
 
     formatCtx_.reset(rawCtx);
 
     formatCtx_->interrupt_callback.opaque = this;
     formatCtx_->interrupt_callback.callback = interruptCallback;
 
+    spdlog::info("StreamMuxer::open step3: about to avio_open2, flags={}",
+                 (formatCtx_->oformat->flags & AVFMT_NOFILE) ? "NOFILE" : "NEEDS_FILE");
+
     if (!(formatCtx_->oformat->flags & AVFMT_NOFILE)) {
-        int maxRetries = 3;
-        int retryIntervalMs = 3000;
+        int maxRetries = 1;
+        int retryIntervalMs = 500;
 
         for (int attempt = 0; attempt <= maxRetries; ++attempt) {
-            AVDictionary* opts = nullptr;
-            av_dict_set(&opts, "timeout", "5000000", 0);
-
-            ret = avio_open2(&formatCtx_->pb, url.c_str(), AVIO_FLAG_WRITE, nullptr, &opts);
-            AVDictionaryPtr cleanupOpts(opts);
+            ret = avio_open2(&formatCtx_->pb, url.c_str(), AVIO_FLAG_WRITE, nullptr, nullptr);
 
             if (ret >= 0) {
+                spdlog::info("StreamMuxer::open step4: avio_open2 OK on attempt {}", attempt + 1);
                 break;
             }
 
@@ -115,20 +112,25 @@ Result<void> StreamMuxer::open(const std::string& url, StreamingProtocol protoco
 
     open_.store(true);
     headerWritten_.store(false);
+    headerFailed_.store(false);
+    writeFailed_.store(false);
 
     spdlog::info("StreamMuxer opened: url={}, protocol={}", url, static_cast<int>(protocol));
     return Result<void>::success();
 }
 
 Result<void> StreamMuxer::writePacket(const EncodedPacket& packet) {
-    if (abortFlag_.load()) {
+    if (abortFlag_.load() || writeFailed_.load()) {
         return Result<void>::error(PlayerError::InvalidState);
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (!open_.load()) {
-        spdlog::error("StreamMuxer::writePacket - not open");
+        return Result<void>::error(PlayerError::InvalidState);
+    }
+
+    if (writeFailed_.load()) {
         return Result<void>::error(PlayerError::InvalidState);
     }
 
@@ -138,12 +140,17 @@ Result<void> StreamMuxer::writePacket(const EncodedPacket& packet) {
         return Result<void>::error(PlayerError::InvalidState);
     }
 
+    if (headerFailed_.load()) {
+        return Result<void>::error(PlayerError::InvalidState);
+    }
+
     if (!headerWritten_.load()) {
         int ret = avformat_write_header(formatCtx_.get(), nullptr);
         if (ret < 0) {
             char errBuf[AV_ERROR_MAX_STRING_SIZE] = {0};
             av_strerror(ret, errBuf, sizeof(errBuf));
             spdlog::error("StreamMuxer::writePacket - avformat_write_header failed: {}", errBuf);
+            headerFailed_.store(true);
             return Result<void>::error(PlayerError::Unknown);
         }
 
@@ -153,7 +160,6 @@ Result<void> StreamMuxer::writePacket(const EncodedPacket& packet) {
 
     AVPacketPtr avPkt = makeAVPacket();
     if (!avPkt) {
-        spdlog::error("StreamMuxer::writePacket - failed to allocate AVPacket");
         return Result<void>::error(PlayerError::Unknown);
     }
 
@@ -161,19 +167,9 @@ Result<void> StreamMuxer::writePacket(const EncodedPacket& packet) {
     avPkt->size = static_cast<int>(packet.data.size());
     avPkt->stream_index = static_cast<int>(packet.streamIndex);
 
-    AVStream* stream = streams_[packet.streamIndex];
-    double tb = av_q2d(stream->time_base);
-    if (tb > 0.0) {
-        avPkt->pts = static_cast<int64_t>(packet.pts / tb);
-        avPkt->dts = static_cast<int64_t>(packet.dts / tb);
-        if (packet.duration > 0) {
-            avPkt->duration = static_cast<int>(packet.duration / tb);
-        }
-    } else {
-        avPkt->pts = static_cast<int64_t>(packet.pts);
-        avPkt->dts = static_cast<int64_t>(packet.dts);
-        avPkt->duration = static_cast<int>(packet.duration);
-    }
+    avPkt->pts = packet.pts;
+    avPkt->dts = (packet.dts != AV_NOPTS_VALUE) ? packet.dts : packet.pts;
+    avPkt->duration = packet.duration;
 
     if (packet.isKeyFrame) {
         avPkt->flags |= AV_PKT_FLAG_KEY;
@@ -183,10 +179,17 @@ Result<void> StreamMuxer::writePacket(const EncodedPacket& packet) {
     if (ret < 0) {
         char errBuf[AV_ERROR_MAX_STRING_SIZE] = {0};
         av_strerror(ret, errBuf, sizeof(errBuf));
-        spdlog::error("StreamMuxer::writePacket - av_interleaved_write_frame failed: {}", errBuf);
+        int errors = consecutiveWriteErrors_.fetch_add(1) + 1;
+        spdlog::error("StreamMuxer::writePacket - av_interleaved_write_frame failed ({}): {}",
+                       errors, errBuf);
+        if (errors >= 10) {
+            spdlog::error("StreamMuxer: {} consecutive write errors, marking stream as failed", errors);
+            writeFailed_.store(true);
+        }
         return Result<void>::error(PlayerError::Unknown);
     }
 
+    consecutiveWriteErrors_.store(0);
     return Result<void>::success();
 }
 
@@ -252,8 +255,10 @@ Result<uint32_t> StreamMuxer::addStream(AVCodecID codecId, const AVRational& tim
         }
     } else {
         stream->codecpar->codec_id = codecId;
+        stream->codecpar->codec_type = avcodec_get_type(codecId);
     }
 
+    stream->codecpar->codec_tag = 0;
     stream->time_base = timeBase;
 
     uint32_t index = static_cast<uint32_t>(streams_.size());

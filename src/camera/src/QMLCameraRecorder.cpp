@@ -392,6 +392,69 @@ void QMLCameraRecorder::startRecording(const QString& outputPath, int width, int
     }
 }
 
+void QMLCameraRecorder::startRecordingWithStream(
+    const QString& outputPath, const QString& streamUrl, int outputMode,
+    int width, int height, int frameRate, int videoBitrate,
+    const QString& cameraDevicePath, const QString& micDevicePath)
+{
+    if (impl_->isRecordingValue) {
+        spdlog::warn("QMLCameraRecorder::startRecordingWithStream: Already recording");
+        return;
+    }
+
+    impl_->recordingFilePathValue = outputPath;
+    emit recordingFilePathChanged();
+
+    impl_->recordingPipeline->setPreviewRenderer(impl_->previewRenderer.get());
+    impl_->previewRenderer->init(width, height);
+    impl_->statsTimer->start();
+
+    QString cameraPath = cameraDevicePath;
+    int camIdx = impl_->cameraListValue.indexOf(cameraDevicePath);
+    if (camIdx >= 0 && camIdx < impl_->cameraPathListValue.size())
+        cameraPath = impl_->cameraPathListValue[camIdx];
+
+    QString micPath = micDevicePath;
+    int micIdx = impl_->micListValue.indexOf(micDevicePath);
+    if (micIdx >= 0 && micIdx < impl_->micPathListValue.size())
+        micPath = impl_->micPathListValue[micIdx];
+
+    spdlog::info("QMLCameraRecorder::startRecordingWithStream camera='{}' mic='{}' stream='{}' mode={}",
+                 cameraPath.toStdString(), micPath.toStdString(),
+                 streamUrl.toStdString(), outputMode);
+
+    RecordingConfig config;
+    config.outputPath = outputPath.toStdString();
+    config.streamUrl = streamUrl.toStdString();
+    config.outputMode = static_cast<RecordingConfig::OutputMode>(outputMode);
+    config.resolution = {"custom", width, height, frameRate};
+    config.videoBitrate = videoBitrate;
+    config.cameraDevicePath = cameraPath.toStdString();
+    config.micDevicePath = micPath.toStdString();
+
+    auto result = impl_->recordingPipeline->start(config,
+        [this](RecordingState state, const RecordingStats& stats) {
+            bool ok = QMetaObject::invokeMethod(this,
+                [this, state, stats]() {
+                    impl_->recordingStats = stats;
+                    handleRecordingStateChange(state);
+                }, Qt::AutoConnection);
+            if (!ok) {
+                spdlog::warn("QMLCameraRecorder: invokeMethod failed, calling handler directly");
+                impl_->recordingStats = stats;
+                handleRecordingStateChange(state);
+            }
+        }
+    );
+
+    if (result.hasError()) {
+        spdlog::error("QMLCameraRecorder::startRecordingWithStream failed: {}",
+                      static_cast<int>(result.error()));
+        impl_->recordingFilePathValue.clear();
+        emit recordingFilePathChanged();
+    }
+}
+
 void QMLCameraRecorder::stopRecording() {
     if (!impl_->isRecordingValue) {
         spdlog::warn("QMLCameraRecorder::stopRecording: Not recording");

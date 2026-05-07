@@ -24,9 +24,24 @@ struct CameraDeviceInfo {
     std::vector<ResolutionPreset> supportedPresets;  ///< Supported resolution/fps combos
 };
 
+/// Streaming protocol.
+enum class StreamingProtocol {
+    RTMP,
+    SRT
+};
+
 /// Recording configuration.
 struct RecordingConfig {
+    enum class OutputMode {
+        File,    // MP4 file output only
+        Stream,  // RTMP/SRT stream output only
+        Both     // Simultaneous file + stream
+    };
+
     std::string outputPath;  ///< Output MP4 file path
+    std::string streamUrl;   ///< RTMP/SRT stream URL (for Stream/Both mode)
+    OutputMode outputMode = OutputMode::File;
+    StreamingProtocol streamProtocol = StreamingProtocol::RTMP;
     ResolutionPreset resolution;
     int videoBitrate = 4000000;   ///< 4 Mbps default
     int audioSampleRate = 48000;
@@ -64,12 +79,6 @@ enum class StreamingState {
     Completed,
     Failed,
     Cancelled
-};
-
-/// Streaming protocol.
-enum class StreamingProtocol {
-    RTMP,
-    SRT
 };
 
 /// Recording statistics.

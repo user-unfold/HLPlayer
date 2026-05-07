@@ -14,14 +14,14 @@ namespace hlplayer {
 
 using namespace hlplayer::ffmpeg;
 
-static EncodedPacket convertPacket(AVPacket* pkt, double timeBase) {
+static EncodedPacket convertPacket(AVPacket* pkt) {
     EncodedPacket out;
     if (pkt->size > 0) {
         out.data.assign(pkt->data, pkt->data + pkt->size);
     }
-    out.pts = pkt->pts * timeBase;
-    out.dts = pkt->dts * timeBase;
-    out.duration = pkt->duration * timeBase;
+    out.pts = pkt->pts;
+    out.dts = pkt->dts;
+    out.duration = pkt->duration;
     out.isKeyFrame = (pkt->flags & AV_PKT_FLAG_KEY) != 0;
     out.streamIndex = static_cast<uint32_t>(pkt->stream_index);
     return out;
@@ -185,7 +185,7 @@ Result<std::vector<EncodedPacket>> AudioEncoder::encode(const uint8_t* pcmData, 
             spdlog::warn("AudioEncoder: avcodec_receive_packet failed: {}", errBuf);
             break;
         }
-        packets.push_back(convertPacket(pkt.get(), timeBase_));
+        packets.push_back(convertPacket(pkt.get()));
     }
 
     return Result<std::vector<EncodedPacket>>::success(std::move(packets));
@@ -228,7 +228,7 @@ Result<std::vector<EncodedPacket>> AudioEncoder::flush() {
                     spdlog::warn("AudioEncoder: flush swr receive error: {}", errBuf);
                     break;
                 }
-                packets.push_back(convertPacket(pkt.get(), timeBase_));
+                packets.push_back(convertPacket(pkt.get()));
             }
         }
     }
@@ -249,7 +249,7 @@ Result<std::vector<EncodedPacket>> AudioEncoder::flush() {
                 spdlog::warn("AudioEncoder: encoder flush receive error: {}", errBuf);
                 break;
             }
-            packets.push_back(convertPacket(pkt.get(), timeBase_));
+            packets.push_back(convertPacket(pkt.get()));
         }
     }
 

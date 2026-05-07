@@ -88,6 +88,7 @@ public:
     QString streamingBitrate() const;
 
     Q_INVOKABLE void startRecording(const QString& outputPath, int width, int height, int frameRate, int videoBitrate, const QString& cameraDevicePath, const QString& micDevicePath);
+    Q_INVOKABLE void startRecordingWithStream(const QString& outputPath, const QString& streamUrl, int outputMode, int width, int height, int frameRate, int videoBitrate, const QString& cameraDevicePath, const QString& micDevicePath);
     Q_INVOKABLE void stopRecording();
     Q_INVOKABLE void pauseRecording();
     Q_INVOKABLE void resumeRecording();

@@ -4,6 +4,7 @@
 #include <hlplayer/CameraTypes.h>
 #include <hlplayer/HWEncoderDetector.h>
 #include <hlplayer/RecordingFrameQueue.h>
+#include <hlplayer/StreamMuxer.h>
 #include <memory>
 #include <functional>
 #include <thread>
@@ -36,6 +37,9 @@ private:
     void audioThreadFunc();
     void notifyState();
     void cleanup();
+    void writeVideoPacket(const EncodedPacket& encPkt);
+    void writeAudioPacket(const EncodedPacket& encPkt);
+
     RecordingConfig config_;
     StateCallbackV2 callback_;
     EncoderInfo encoderInfo_;
@@ -44,6 +48,7 @@ private:
     std::unique_ptr<AudioCapture> audioCapture_;
     std::unique_ptr<AudioEncoder> audioEncoder_;
     std::unique_ptr<RecordingFrameQueue> frameQueue_;
+    std::unique_ptr<StreamMuxer> streamMuxer_;
     AVFormatContext* outputCtx_ = nullptr;
     int videoStreamIndex_ = -1;
     int audioStreamIndex_ = -1;

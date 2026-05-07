@@ -30,6 +30,7 @@ public:
     const AVCodecContext* context() const;
     AVPixelFormat hwPixFmt() const;
     bool isHardware() const;
+    Result<void> ensureExtradata();
 private:
     Result<void> initHardwareContext();
     Result<void> initEncoder();
