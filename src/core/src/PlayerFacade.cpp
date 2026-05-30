@@ -14,6 +14,10 @@
 #include <hlplayer/IAudioDecoder.h>
 #include <hlplayer/IAudioRenderer.h>
 
+#ifdef BUILD_ASR
+#include <hlplayer/ASRTypes.h>
+#endif
+
 extern "C" {
 #include <libavcodec/codec_id.h>
 }
@@ -158,6 +162,15 @@ struct PlayerFacade::Impl {
     std::unique_ptr<IAIPipeline> aiPipeline;
     IVideoFrameSink* sink = nullptr;
     std::unique_ptr<IVideoFrameSink> ownedSink;
+
+#ifdef BUILD_ASR
+    void* asrHandle_ = nullptr;
+    std::function<void(void*)> asrDestroyer_;
+    std::function<void()> asrOnSeek_;
+    std::function<void()> asrOnPause_;
+    std::function<void()> asrOnResume_;
+    std::function<void()> asrOnStop_;
+#endif
 
     std::unique_ptr<IAudioDecoder> audioDecoder;
     std::unique_ptr<IAudioRenderer> audioRenderer;
@@ -367,6 +380,9 @@ Result<void> PlayerFacade::open(const std::string& url) {
         }
         impl_->lastError.clear();
         impl_->stateMachine.reset();
+#ifdef BUILD_ASR
+        shutdownASR();
+#endif
     }
 
     auto tr = impl_->stateMachine.transition(PlayerEvent::Open);
@@ -595,6 +611,10 @@ Result<void> PlayerFacade::play() {
         if (impl_->audioRenderer) {
             impl_->audioRenderer->resume();
         }
+
+#ifdef BUILD_ASR
+        if (impl_->asrOnResume_) impl_->asrOnResume_();
+#endif
         return Result<void>::success();
     }
 
@@ -640,6 +660,10 @@ Result<void> PlayerFacade::pause() {
     if (impl_->audioRenderer) {
         impl_->audioRenderer->pause();
     }
+
+#ifdef BUILD_ASR
+    if (impl_->asrOnPause_) impl_->asrOnPause_();
+#endif
     return Result<void>::success();
 }
 
@@ -668,6 +692,11 @@ Result<void> PlayerFacade::stop() {
     }
     impl_->videoStreamReady = false;
 
+#ifdef BUILD_ASR
+    if (impl_->asrOnStop_) impl_->asrOnStop_();
+    shutdownASR();
+#endif
+
     PlayerState old = current;
     auto tr = impl_->stateMachine.transition(PlayerEvent::Stop);
     if (tr.hasError()) return Result<void>::error(PlayerError::InvalidState);
@@ -684,6 +713,10 @@ Result<void> PlayerFacade::seek(double seconds) {
     }
 
     impl_->atomicTelemetry.incrementCounter("seek_count");
+
+#ifdef BUILD_ASR
+    if (impl_->asrOnSeek_) impl_->asrOnSeek_();
+#endif
 
     // Flush and clear the audio queue *before* seeking so the demux loop
     // never blocks on a full queue between signalling seekCompleted and
@@ -708,6 +741,13 @@ Result<void> PlayerFacade::seek(double seconds) {
     impl_->syncClock.reset();
     impl_->syncClock.onVideoFrame(seconds, 0);
     impl_->syncClock.onAudioFrame(seconds, 0);
+
+#ifdef BUILD_ASR
+    {
+        ASRStateChangedPayload payload{asr::ASRState::Running, asr::ASRState::Running};
+        impl_->eventBus.publish(Event{EventType::ASRStateChanged, 0.0, payload});
+    }
+#endif
 
     return Result<void>::success();
 }
@@ -777,5 +817,42 @@ Result<void> PlayerFacade::loadAIModel(const std::string& modelPath, AICapabilit
     }
     return impl_->aiPipeline->loadModel(modelPath, cap);
 }
+
+#ifdef BUILD_ASR
+
+void PlayerFacade::setASRPipeline(ASRHandle pipeline, ASRDestroyer destroyer) {
+    std::lock_guard<std::recursive_mutex> lock(impl_->apiMutex);
+    shutdownASR();
+    impl_->asrHandle_ = pipeline;
+    impl_->asrDestroyer_ = std::move(destroyer);
+}
+
+void PlayerFacade::shutdownASR() {
+    std::lock_guard<std::recursive_mutex> lock(impl_->apiMutex);
+    if (impl_->asrHandle_ && impl_->asrDestroyer_) {
+        impl_->asrDestroyer_(impl_->asrHandle_);
+    }
+    impl_->asrHandle_ = nullptr;
+    impl_->asrDestroyer_ = nullptr;
+}
+
+PlayerFacade::ASRHandle PlayerFacade::asrPipeline() const {
+    return impl_->asrHandle_;
+}
+
+void PlayerFacade::setASRPlaybackCallbacks(
+    ASRPlaybackCallback onSeek,
+    ASRPlaybackCallback onPause,
+    ASRPlaybackCallback onResume,
+    ASRPlaybackCallback onStop
+) {
+    std::lock_guard<std::recursive_mutex> lock(impl_->apiMutex);
+    impl_->asrOnSeek_ = std::move(onSeek);
+    impl_->asrOnPause_ = std::move(onPause);
+    impl_->asrOnResume_ = std::move(onResume);
+    impl_->asrOnStop_ = std::move(onStop);
+}
+
+#endif
 
 } // namespace hlplayer

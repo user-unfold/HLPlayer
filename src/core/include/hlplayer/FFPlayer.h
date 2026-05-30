@@ -14,6 +14,7 @@
 #include <hlplayer/EventBus.h>
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <string>
 #include <thread>
@@ -33,6 +34,14 @@ public:
     void setAudioDecoder(std::unique_ptr<IAudioDecoder> decoder);
     void setAudioRenderer(std::unique_ptr<IAudioRenderer> renderer);
     void setVideoSink(IVideoFrameSink* sink);
+
+    /// Callback invoked for each decoded audio frame. Used to feed audio
+    /// to external consumers (e.g., ASR pipeline) without a compile-time
+    /// dependency on the ASR module.
+    using AudioFrameCallback = std::function<void(const AudioFrame&)>;
+
+    /// Set an audio frame callback. Called from the audio decode thread.
+    void setAudioFrameCallback(AudioFrameCallback callback);
 
     Result<void> open(const std::string& url);
     Result<void> play();

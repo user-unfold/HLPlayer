@@ -17,12 +17,19 @@
 
 namespace hlplayer {
 
+// Forward declaration to avoid circular dependency
+namespace asr {
+enum class ASRState : int8_t;
+}
+
 enum class EventType {
     StateChanged,
     Error,
     BufferLevelChanged,
     LatencyMeasured,
-    ResolutionChanged
+    ResolutionChanged,
+    SubtitleReady,
+    ASRStateChanged
 };
 
 struct StateChangedPayload {
@@ -50,12 +57,28 @@ struct ResolutionPayload {
     uint32_t height;
 };
 
+struct SubtitleReadyPayload {
+    std::string text;
+    std::string translation;
+    double startTime;
+    double endTime;
+    std::string language;
+    int sequenceId;
+};
+
+struct ASRStateChangedPayload {
+    asr::ASRState oldState;
+    asr::ASRState newState;
+};
+
 using EventPayload = std::variant<
     StateChangedPayload,
     ErrorPayload,
     BufferLevelPayload,
     LatencyPayload,
-    ResolutionPayload>;
+    ResolutionPayload,
+    SubtitleReadyPayload,
+    ASRStateChangedPayload>;
 
 struct Event {
     EventType type;

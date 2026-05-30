@@ -58,6 +58,8 @@ struct FFPlayer::Impl {
 
     std::unique_ptr<AudioTempoProcessor> tempoProcessor;
 
+    AudioFrameCallback audioFrameCallback_;
+
     std::recursive_mutex apiMutex;
 
     // Protects the decoder objects so that avcodec_flush_buffers() from the
@@ -137,6 +139,10 @@ void FFPlayer::setAudioRenderer(std::unique_ptr<IAudioRenderer> renderer) {
 
 void FFPlayer::setVideoSink(IVideoFrameSink* sink) {
     impl_->videoSink = sink;
+}
+
+void FFPlayer::setAudioFrameCallback(AudioFrameCallback callback) {
+    impl_->audioFrameCallback_ = std::move(callback);
 }
 
 Result<void> FFPlayer::open(const std::string& url) {
@@ -700,6 +706,10 @@ void FFPlayer::audioDecodeLoop() {
             // to indicate forward progress).
             if (impl_->audioSeekTarget_.load() >= 0.0) {
                 impl_->audioSeekTarget_.store(-1.0);
+            }
+
+            if (impl_->audioFrameCallback_) {
+                impl_->audioFrameCallback_(*frame);
             }
 
             // Process through tempo filter for pitch-preserving speed changes

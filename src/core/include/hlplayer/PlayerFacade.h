@@ -7,6 +7,7 @@
 #include <hlplayer/IAudioRenderer.h>
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -63,6 +64,22 @@ public:
     Result<void> enableAICapability(AICapability cap);
     bool isAICapabilityEnabled(AICapability cap) const;
     Result<void> loadAIModel(const std::string& modelPath, AICapability cap);
+
+#ifdef BUILD_ASR
+    using ASRHandle = void*;
+    using ASRDestroyer = std::function<void(ASRHandle)>;
+    using ASRPlaybackCallback = std::function<void()>;
+
+    void setASRPipeline(ASRHandle pipeline, ASRDestroyer destroyer);
+    void shutdownASR();
+    ASRHandle asrPipeline() const;
+    void setASRPlaybackCallbacks(
+        ASRPlaybackCallback onSeek,
+        ASRPlaybackCallback onPause,
+        ASRPlaybackCallback onResume,
+        ASRPlaybackCallback onStop
+    );
+#endif
 
 private:
     struct Impl;
