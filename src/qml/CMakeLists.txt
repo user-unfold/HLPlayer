@@ -28,6 +28,17 @@ if(BUILD_QML AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../camera/include/hlplayer/
     list(APPEND QML_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/../camera/include/hlplayer/QMLCameraRecorder.h)
 endif()
 
+# QMLASRBridge needs to be compiled into hlplayer_qml (not hlplayer_asr)
+# because qt6_add_qml_module(URI HLPlayer) only registers QML_ELEMENT types
+# from its own target. hlplayer_asr has no QML module, so QMLASRBridge types
+# would never be registered with the QML engine.
+if(BUILD_ASR AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../asr/src/QMLASRBridge.cpp")
+    list(APPEND QML_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../asr/src/QMLASRBridge.cpp)
+endif()
+if(BUILD_ASR AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../asr/include/hlplayer/QMLASRBridge.h")
+    list(APPEND QML_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/../asr/include/hlplayer/QMLASRBridge.h)
+endif()
+
 # Collect QML files (convert to relative paths for qt6_add_qml_module)
 file(GLOB_RECURSE QML_FILES_ABSOLUTE
     ${CMAKE_CURRENT_SOURCE_DIR}/*.qml
@@ -76,6 +87,7 @@ set_target_properties(hlplayer_qml PROPERTIES
 target_include_directories(hlplayer_qml
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/src/asr/include/hlplayer>
         $<INSTALL_INTERFACE:include>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
@@ -83,6 +95,7 @@ target_include_directories(hlplayer_qml
         ${CMAKE_CURRENT_SOURCE_DIR}/../camera/include
         ${CMAKE_CURRENT_SOURCE_DIR}/../camera/include/hlplayer
         ${CMAKE_SOURCE_DIR}/src/vsr/include
+        ${CMAKE_SOURCE_DIR}/src/asr/include
 )
 
 # Optional FFmpeg headers
@@ -116,8 +129,13 @@ target_link_libraries(hlplayer_qml
 # Link camera module if BUILD_QML
 if(BUILD_QML)
     target_link_libraries(hlplayer_qml PRIVATE hlplayer_camera)
-    # Export QMLCameraRecorder symbols (compiled in hlplayer_qml, not hlplayer_camera)
     target_compile_definitions(hlplayer_qml PRIVATE HLPLAYER_CAMERA_QML_EXPORTS)
+endif()
+
+# Link ASR module if BUILD_ASR
+if(BUILD_ASR)
+    target_link_libraries(hlplayer_qml PRIVATE hlplayer_asr)
+    target_compile_definitions(hlplayer_qml PRIVATE HLPLAYER_ASR_ENABLED)
 endif()
 
 if(BUILD_VSR)

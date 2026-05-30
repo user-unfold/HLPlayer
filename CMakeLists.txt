@@ -85,6 +85,11 @@ option(TRACE_ENABLED "Enable trace-level logging" OFF)
 option(BUILD_CAMERA "Build Camera Recording + Streaming module" ON)
 
 # ============================================================================
+# ASR (Automatic Speech Recognition) Module
+# ============================================================================
+option(BUILD_ASR "Build ASR real-time subtitle module (requires whisper.cpp)" ON)
+
+# ============================================================================
 # NCNN (Video Super-Resolution dependency)
 # ============================================================================
 option(BUILD_VSR "Build VSR (Video Super-Resolution) module" OFF)
@@ -99,6 +104,13 @@ add_subdirectory(src/render)
 # Camera Recording + Streaming module
 if(BUILD_CAMERA)
     add_subdirectory(src/camera)
+endif()
+
+# ASR real-time subtitle module
+if(BUILD_ASR)
+    add_subdirectory(src/asr)
+    target_compile_definitions(hlplayer_core PRIVATE BUILD_ASR)
+    target_include_directories(hlplayer_core PRIVATE ${CMAKE_SOURCE_DIR}/src/asr/include)
 endif()
 
 option(BUILD_QML "Build Qt6/QML integration module" ON)
@@ -152,4 +164,8 @@ message(STATUS "=========================================")
 message(STATUS "Build Type:     ${CMAKE_BUILD_TYPE}")
 message(STATUS "C++ Standard:   ${CMAKE_CXX_STANDARD}")
 message(STATUS "Compiler:       ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+message(STATUS "Camera module:  ${BUILD_CAMERA}")
+message(STATUS "ASR module:     ${BUILD_ASR}")
+message(STATUS "VSR module:     ${BUILD_VSR}")
+message(STATUS "QML module:     ${BUILD_QML}")
 message(STATUS "=========================================")

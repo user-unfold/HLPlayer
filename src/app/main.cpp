@@ -16,10 +16,18 @@
 #include <hlplayer/PreviewRenderer.h>
 #endif
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 extern void qml_register_types_HLPlayer();
 
 int main(int argc, char *argv[])
 {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+#endif
+
     hlplayer::sdk::init();
 
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);

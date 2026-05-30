@@ -4,6 +4,9 @@
 #include <hlplayer/CameraExport.h>
 #include <hlplayer/Result.h>
 #include <cstdint>
+#include <vector>
+#include <mutex>
+#include <chrono>
 
 #ifdef BUILD_QML
 #include <QQuickImageProvider>

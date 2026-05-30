@@ -77,6 +77,7 @@ set_target_properties(hlplayer_camera PROPERTIES
     CXX_STANDARD_REQUIRED ON
     CXX_EXTENSIONS OFF
     POSITION_INDEPENDENT_CODE ON
+    AUTOMOC ON
 )
 
 # Include directories
@@ -156,9 +157,6 @@ if(BUILD_QML)
     target_include_directories(hlplayer_camera PRIVATE ${Qt6Core_INCLUDE_DIRS})
     target_link_libraries(hlplayer_camera PRIVATE Qt6::Core Qt6::Gui Qt6::Quick)
     target_compile_definitions(hlplayer_camera PRIVATE BUILD_QML)
-
-    # Enable Qt MOC for QML integration
-    set_target_properties(hlplayer_camera PROPERTIES AUTOMOC ON)
 endif()
 
 # HLPLAYER_CAMERA_QML_EXPORTS is now defined in hlplayer_qml
