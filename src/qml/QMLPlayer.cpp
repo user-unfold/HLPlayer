@@ -3,6 +3,7 @@
 #include <hlplayer/MediaPlayer.h>
 #include <hlplayer/EventBus.h>
 #include <hlplayer/DirectStreamResolver.h>
+#include <hlplayer/ASRPipeline.h>
 #include <ExtractorFactory.h>
 #include <VulkanVideoSink.h>
 #include <SDLAudioRenderer.h>
@@ -105,6 +106,27 @@ QMLPlayer::~QMLPlayer() {
         impl_->mediaPlayer->eventBus().unsubscribe(impl_->resolutionSubscriptionId);
     }
     spdlog::info("HLPlayer::QMLPlayer destructed");
+}
+
+quintptr QMLPlayer::eventBusPointer() const {
+    return reinterpret_cast<quintptr>(&impl_->mediaPlayer->eventBus());
+}
+
+void QMLPlayer::setAudioFrameCallback(const QVariant& pipelinePtr) {
+    auto* ffPlayer = impl_->mediaPlayer->player();
+    if (!ffPlayer) return;
+
+    quintptr ptr = pipelinePtr.value<quintptr>();
+    spdlog::info("QMLPlayer::setAudioFrameCallback called with ptr={}", ptr);
+    if (ptr == 0) {
+        ffPlayer->setAudioFrameCallback(nullptr);
+        return;
+    }
+
+    auto* pipeline = reinterpret_cast<asr::ASRPipeline*>(ptr);
+    ffPlayer->setAudioFrameCallback([pipeline](const AudioFrame& frame) {
+        pipeline->feedAudioFrame(frame);
+    });
 }
 
 void QMLPlayer::setupEventBusSubscription() {

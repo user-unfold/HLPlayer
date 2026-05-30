@@ -22,6 +22,11 @@ ApplicationWindow {
     property string playbackMode: "loop"
     readonly property var allPlaybackModes: ["loop", "sequential", "random"]
 
+    property string asrMode: "off"
+    property string asrLanguage: "zh"
+    property int asrFontSize: 18
+    property string asrFontColor: "#FFFFFF"
+
     readonly property int space1: 8
     readonly property int space2: 16
     readonly property int space3: 24
@@ -226,6 +231,15 @@ ApplicationWindow {
         }
     }
 
+    QMLASRBridge {
+        id: asrBridge
+        Component.onCompleted: {
+            asrBridge.initFromPlayer(player)
+            asrBridge.setModelDirectory("D:/HLPlayer/models")
+            console.log("ASR Bridge initialized, enabled:", enabled)
+        }
+    }
+
     FileDialog {
         id: fileDialog
         title: PlayerI18nContext.tr("Open Media File")
@@ -416,6 +430,25 @@ ApplicationWindow {
                             color: ThemeManager.accentColor
                         }
                     }
+                    // Subtitle overlay
+                    Loader {
+                        id: subtitleOverlayLoader
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.margins: 12
+                        z: 20
+                        visible: root.asrMode !== "off" && (asrBridge.currentSubtitleText !== "" || asrBridge.translatedSubtitleText !== "" || asrBridge.modelLoadingStatus !== "")
+                        opacity: visible ? 1.0 : 0.0
+                        Behavior on opacity { NumberAnimation { duration: 200 } }
+                        source: "file:///D:/HLPlayer/src/asr/qml/SubtitleOverlay.qml"
+
+                        Binding { target: subtitleOverlayLoader.item; property: "subtitleText";   value: asrBridge.modelLoadingStatus || asrBridge.currentSubtitleText || "" }
+                        Binding { target: subtitleOverlayLoader.item; property: "translatedText"; value: asrBridge.translatedSubtitleText || "" }
+                        Binding { target: subtitleOverlayLoader.item; property: "displayMode";    value: asrBridge.displayMode !== undefined ? asrBridge.displayMode : 0 }
+                        Binding { target: subtitleOverlayLoader.item; property: "fontSize";      value: asrBridge.fontSize !== undefined ? asrBridge.fontSize : 18 }
+                        Binding { target: subtitleOverlayLoader.item; property: "fontColor";     value: asrBridge.fontColor || "#FFFFFF" }
+                    }
                 }
 
                 // C3: Gradient backdrop behind floating controls
@@ -468,6 +501,14 @@ ApplicationWindow {
                                 Binding on value {
                                     when: !progressSlider._seekDragging
                                     value: player.position
+                                }
+
+                                Behavior on value {
+                                    enabled: !progressSlider._seekDragging
+                                    NumberAnimation {
+                                        duration: 100
+                                        easing.type: Easing.OutCubic
+                                    }
                                 }
 
                                 onMoved: {
@@ -973,6 +1014,331 @@ onClicked: {
                                     }
                                 }
                             }
+
+                            Button {
+                                id: subtitleBtn
+                                flat: true
+                                Layout.preferredWidth: 32
+                                Layout.preferredHeight: 36
+                                background: Rectangle {
+                                    radius: 4
+                                    color: subtitleBtn.hovered ? ThemeManager.surface : "transparent"
+                                }
+                                contentItem: Text {
+                                    anchors.centerIn: parent
+                                    text: "字幕"
+                                    font.pixelSize: 9
+                                    font.bold: true
+                                    color: root.asrMode !== "off" ? "#4FC3F7" : ThemeManager.accentColor
+                                }
+
+                                hoverEnabled: true
+
+                                onHoveredChanged: {
+                                    if (hovered) {
+                                        subtitleCloseTimer.stop()
+                                        if (!subtitleMenu.visible) {
+                                            subtitleHoverDebounce.start()
+                                        }
+                                    } else {
+                                        subtitleCloseTimer.restart()
+                                    }
+                                }
+
+                                // Debounce: avoid flickering on quick mouse pass
+                                Timer {
+                                    id: subtitleHoverDebounce
+                                    interval: 80
+                                    onTriggered: subtitleMenu.open()
+                                }
+
+                                Timer {
+                                    id: subtitleCloseTimer
+                                    interval: 500
+                                    onTriggered: {
+                                        if (!subtitleBtn.hovered) {
+                                            subtitleMenu.close()
+                                        }
+                                    }
+                                }
+
+                                Popup {
+                                    id: subtitleMenu
+                                    width: 100
+                                    height: 120
+                                    padding: 6
+                                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+                                    x: subtitleBtn.width / 2 - width / 2
+                                    y: -height - 4
+
+                                    background: Rectangle {
+                                        color: "#2a2a3e"
+                                        radius: 6
+                                        border.color: "#555555"
+                                        border.width: 0.5
+                                        opacity: 0.92
+
+                                        // Track hover on the whole background using HoverHandler
+                                        HoverHandler {
+                                            id: menuHoverHandler
+                                            onHoveredChanged: {
+                                                if (hovered) {
+                                                    subtitleCloseTimer.stop()
+                                                } else {
+                                                    subtitleCloseTimer.restart()
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    contentItem: Column {
+                                        spacing: 2
+                                        width: subtitleMenu.width - subtitleMenu.padding * 2
+
+                                        Item {
+                                            width: parent.width
+                                            height: 30
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: 4
+                                                color: root.asrMode === "off" ? "#334FC3F7" : (closeMa.containsMouse ? ThemeManager.surface : "transparent")
+                                            }
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: "关闭"
+                                                font.pixelSize: 13
+                                                color: root.asrMode === "off" ? "#4FC3F7" : ThemeManager.onSurface
+                                            }
+                                            MouseArea {
+                                                id: closeMa
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                onContainsMouseChanged: {
+                                                    if (containsMouse) subtitleCloseTimer.stop()
+                                                    else subtitleCloseTimer.restart()
+                                                }
+                                                onClicked: {
+                                                    root.asrMode = "off"
+                                                    asrBridge.setEnabled(false)
+                                                    showOsd("字幕已关闭")
+                                                    subtitleMenu.close()
+                                                }
+                                            }
+                                        }
+
+                                        Item {
+                                            width: parent.width
+                                            height: 30
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: 4
+                                                color: root.asrMode === "zh" ? "#334FC3F7" : (zhMa.containsMouse ? ThemeManager.surface : "transparent")
+                                            }
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: "中文"
+                                                font.pixelSize: 13
+                                                color: root.asrMode === "zh" ? "#4FC3F7" : ThemeManager.onSurface
+                                            }
+                                            MouseArea {
+                                                id: zhMa
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                onContainsMouseChanged: {
+                                                    if (containsMouse) subtitleCloseTimer.stop()
+                                                    else subtitleCloseTimer.restart()
+                                                }
+                                                onClicked: {
+                                                    root.asrMode = "zh"
+                                                    asrBridge.setLanguage("zh")
+                                                    asrBridge.setEnabled(true)
+                                                    showOsd("中文字幕已开启")
+                                                    subtitleMenu.close()
+                                                }
+                                            }
+                                        }
+
+                                        Rectangle {
+                                            width: parent.width
+                                            height: 1
+                                            color: ThemeManager.onSurface
+                                            opacity: 0.2
+                                        }
+
+                                        Item {
+                                            width: parent.width
+                                            height: 30
+                                            Rectangle {
+                                                anchors.fill: parent
+                                                radius: 4
+                                                color: settingsMa.containsMouse ? ThemeManager.surface : "transparent"
+                                            }
+                                            Text {
+                                                anchors.centerIn: parent
+                                                text: "设置"
+                                                font.pixelSize: 13
+                                                color: ThemeManager.onSurface
+                                            }
+                                            MouseArea {
+                                                id: settingsMa
+                                                anchors.fill: parent
+                                                hoverEnabled: true
+                                                onContainsMouseChanged: {
+                                                    if (containsMouse) subtitleCloseTimer.stop()
+                                                    else subtitleCloseTimer.restart()
+                                                }
+                                                onClicked: {
+                                                    subtitleMenu.close()
+                                                    subtitleSettingsPopup.open()
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Popup {
+                                id: subtitleSettingsPopup
+                                x: subtitleBtn.mapToItem(null, 0, 0).x - 200
+                                y: subtitleBtn.mapToItem(null, 0, 0).y - 200
+                                width: 220
+                                padding: 16
+                                modal: true
+                                focus: true
+                                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+                                background: Rectangle {
+                                    color: "#1a1a2e"
+                                    radius: 8
+                                    border.color: "#444444"
+                                    border.width: 0.5
+                                    opacity: 0.95
+                                }
+
+                                contentItem: Column {
+                                    spacing: 12
+
+                                    Text {
+                                        text: "字幕设置"
+                                        font.pixelSize: 14
+                                        font.bold: true
+                                        font.family: "IBM Plex Sans"
+                                        color: "#ffffff"
+                                    }
+
+                                    Text {
+                                        text: "识别语言"
+                                        font.pixelSize: 11
+                                        font.family: "IBM Plex Sans"
+                                        color: "#999999"
+                                    }
+                                    Row {
+                                        spacing: 6
+                                        Repeater {
+                                            model: ["中文", "English"]
+                                            Rectangle {
+                                                width: 80
+                                                height: 28
+                                                radius: 4
+                                                color: root.asrLanguage === (index === 0 ? "zh" : "en") ? "#334FC3F7" : "#333333"
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    text: modelData
+                                                    font.pixelSize: 11
+                                                    font.family: "IBM Plex Sans"
+                                                    color: root.asrLanguage === (index === 0 ? "zh" : "en") ? "#4FC3F7" : "#cccccc"
+                                                }
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        var lang = index === 0 ? "zh" : "en"
+                                                        root.asrLanguage = lang
+                                                        asrBridge.setLanguage(lang)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Text {
+                                        text: "字体大小"
+                                        font.pixelSize: 11
+                                        font.family: "IBM Plex Sans"
+                                        color: "#999999"
+                                    }
+                                    Row {
+                                        spacing: 4
+                                        Repeater {
+                                            model: ["小", "中", "大"]
+                                            Rectangle {
+                                                width: 50
+                                                height: 26
+                                                radius: 4
+                                                property int sizeVal: [14, 18, 24][index]
+                                                color: root.asrFontSize === sizeVal ? "#334FC3F7" : "#333333"
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    text: modelData
+                                                    font.pixelSize: 10
+                                                    font.family: "IBM Plex Sans"
+                                                    color: root.asrFontSize === parent.parent.sizeVal ? "#4FC3F7" : "#cccccc"
+                                                }
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        root.asrFontSize = [14, 18, 24][index]
+                                                        asrBridge.setFontSize(root.asrFontSize)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Text {
+                                        text: "字体颜色"
+                                        font.pixelSize: 11
+                                        font.family: "IBM Plex Sans"
+                                        color: "#999999"
+                                    }
+                                    Row {
+                                        spacing: 8
+                                        Repeater {
+                                            model: [
+                                                { name: "白", color: "#FFFFFF" },
+                                                { name: "黄", color: "#FFFF00" },
+                                                { name: "绿", color: "#00FF00" },
+                                                { name: "青", color: "#00FFFF" }
+                                            ]
+                                            Rectangle {
+                                                width: 36
+                                                height: 26
+                                                radius: 4
+                                                color: "#333333"
+                                                border.color: root.asrFontColor === modelData.color ? "#4FC3F7" : "transparent"
+                                                border.width: 2
+                                                Rectangle {
+                                                    anchors.centerIn: parent
+                                                    width: 14
+                                                    height: 14
+                                                    radius: 7
+                                                    color: modelData.color
+                                                }
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        root.asrFontColor = modelData.color
+                                                        asrBridge.setFontColor(modelData.color)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     } // controlsBar Rectangle
@@ -1133,8 +1499,8 @@ onClicked: {
                         horizontalAlignment: Text.AlignHCenter
                         visible: playlist.count === 0
                     }
+                    }
                 }
-            }
         }
     }
 

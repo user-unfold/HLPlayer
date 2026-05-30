@@ -71,6 +71,14 @@ import HLPlayer
                     value: root.player ? root.player.position : 0.0
                 }
 
+                Behavior on value {
+                    enabled: !seekSlider._seekDragging
+                    NumberAnimation {
+                        duration: 100
+                        easing.type: Easing.OutCubic
+                    }
+                }
+
                 Accessible.role: Accessible.Slider
                 Accessible.name: PlayerI18nContext.tr("Seek")
 

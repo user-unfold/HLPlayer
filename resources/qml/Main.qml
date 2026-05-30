@@ -468,6 +468,14 @@ ApplicationWindow {
                                     value: player.position
                                 }
 
+                                Behavior on value {
+                                    enabled: !progressSlider._seekDragging
+                                    NumberAnimation {
+                                        duration: 100
+                                        easing.type: Easing.OutCubic
+                                    }
+                                }
+
                                 onMoved: {
                                     if (!canSeek()) return;
                                     pendingSeekValue = value;

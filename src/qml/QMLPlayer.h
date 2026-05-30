@@ -80,6 +80,8 @@ public:
     Q_INVOKABLE void pause();
     Q_INVOKABLE void stop();
     Q_INVOKABLE void seek(double seconds);
+    Q_INVOKABLE quintptr eventBusPointer() const;
+    Q_INVOKABLE void setAudioFrameCallback(const QVariant& pipelinePtr);
 
 signals:
     void sourceChanged();
