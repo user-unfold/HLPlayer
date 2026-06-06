@@ -59,9 +59,9 @@ struct HLPLAYER_ASR_API ASRConfig {
     bool enableTranslation = false;     ///< Enable Whisper translate mode (→ English)
     bool useGPU = true;                 ///< Use CUDA GPU acceleration if available
     int gpuDevice = 0;                  ///< CUDA device index
-    float vadThreshold = 0.6f;          ///< VAD energy threshold (0.0 - 1.0)
+    float vadThreshold = 0.5f;          ///< VAD aggressiveness (0=least, 3=most aggressive)
     int maxSegmentLengthMs = 5000;      ///< Max audio segment length for recognition
-    int audioContextMs = 500;           ///< Audio context overlap between segments
+    int audioContextMs = 200;           ///< Audio context overlap between segments
     AudioSourceType audioSource = AudioSourceType::VideoTrack;
     size_t maxQueueSize = 100;          ///< Max audio chunk queue size (drops oldest if exceeded)
     int cacheDurationSeconds = 300;     ///< Model cache duration after shutdown (default 5 minutes)

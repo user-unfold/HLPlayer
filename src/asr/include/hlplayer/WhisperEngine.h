@@ -9,14 +9,11 @@
 #include <string>
 #include <vector>
 
-// Forward declare whisper.cpp types to avoid exposing whisper.h in public header
 struct whisper_context;
 
 namespace hlplayer {
 namespace asr {
 
-/// Whisper.cpp-based ASR engine implementation.
-/// Supports CUDA GPU acceleration with automatic CPU fallback.
 class HLPLAYER_ASR_API WhisperEngine : public IASREngine {
 public:
     WhisperEngine();
@@ -34,30 +31,41 @@ public:
     bool isReady() const override;
     ASRState state() const override;
 
-    /// Detect whether CUDA GPU acceleration is available for Whisper.
     static bool isCUDAAvailable();
 
-    /// Update runtime config (segment length, VAD threshold, etc.) without reloading model.
     void updateConfig(const ASRConfig& config);
 
 private:
-    /// Run Whisper inference on the accumulated audio buffer.
-    /// Called internally when enough audio has been collected.
     std::vector<SubtitleSegment> runInference(const std::vector<float>& audio, double basePts);
+
+    bool detectSpeech(const float* frame, size_t frameSize);
 
     whisper_context* ctx_ = nullptr;
     ASRConfig config_;
     std::atomic<ASRState> state_{ASRState::Idle};
 
-    // Audio accumulation buffer
     std::vector<float> audioBuffer_;
     double bufferStartPts_ = 0.0;
     int32_t nextSequenceId_ = 0;
     mutable std::mutex mutex_;
 
-    // Completed results waiting to be retrieved
     std::vector<SubtitleSegment> pendingResults_;
     std::mutex resultsMutex_;
+
+    double lastRecognizedEndTime_ = 0.0;
+    std::string lastRecognizedText_;
+
+    struct VADState {
+        bool inSpeech = false;
+        size_t speechStartSample = 0;
+        int silenceFrames = 0;
+        int speechFrames = 0;
+        size_t processedSamples = 0;
+    };
+    VADState vadState_;
+
+    float noiseFloor_ = 1e-4f;
+    int vadFrameCount_ = 0;
 };
 
 } // namespace asr
