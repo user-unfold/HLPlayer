@@ -51,6 +51,7 @@ struct FFPlayer::Impl {
     std::atomic<PlayerState> state{PlayerState_Idle};
     std::atomic<double> position{0.0};
     std::atomic<double> positionFloor_{-1.0};
+    std::atomic<double> lastReportedPos_{0.0};
     std::atomic<double> duration{0.0};
     std::string currentUrl;
     bool videoStreamReady = false;
@@ -158,6 +159,7 @@ Result<void> FFPlayer::open(const std::string& url) {
     impl_->audioStreamReady = false;
     impl_->positionFloor_.store(-1.0);
     impl_->position.store(0.0);
+    impl_->lastReportedPos_.store(0.0);
 
     if (impl_->videoDecoder) impl_->videoDecoder->close();
     if (impl_->audioDecoder) impl_->audioDecoder->close();
@@ -354,6 +356,7 @@ void FFPlayer::stopInternal() {
     impl_->running.store(false);
     impl_->paused.store(false);
     impl_->positionFloor_.store(-1.0);
+    impl_->lastReportedPos_.store(0.0);
 
     impl_->videoPacketQueue.shutdown();
     impl_->audioPacketQueue.shutdown();
@@ -401,6 +404,7 @@ Result<void> FFPlayer::seek(double seconds) {
     impl_->syncClock.setVideoClock(seconds);
     impl_->position.store(seconds);
     impl_->positionFloor_.store(seconds);
+    impl_->lastReportedPos_.store(seconds);
 
     impl_->videoSeekTarget_.store(seconds);
     impl_->audioSeekTarget_.store(seconds);
@@ -524,13 +528,43 @@ double FFPlayer::getPosition() const {
     // During seek convergence: return the seek target until the audio
     // decode loop has processed a post-keyframe frame and cleared positionFloor_.
     double floor = impl_->positionFloor_.load();
-    if (floor >= 0.0) return floor;
+    if (floor >= 0.0) {
+        impl_->lastReportedPos_.store(floor, std::memory_order_release);
+        return floor;
+    }
+
+    double pos = 0.0;
 
     if (impl_->state.load() == PlayerState_Playing) {
-        double master = impl_->syncClock.getMasterClock();
-        if (master > 0.0) return master;
+        // Use the stored position (updated atomically per-frame in the audio
+        // decode loop) instead of getMasterClock().  getMasterClock() reads
+        // two separate atomics (audioClock and audioDeviceLatency) that are
+        // updated at different points in the decode loop, causing read-skew
+        // jitter: the UI thread can observe a new latency paired with a stale
+        // clock (or vice-versa), producing a position that oscillates ±20-50 ms.
+        pos = impl_->position.load(std::memory_order_acquire);
+
+        // Fallback for video-only playback (no audio frames decoded yet)
+        if (pos <= 0.0) {
+            double master = impl_->syncClock.getMasterClock();
+            if (master > 0.0) pos = master;
+        }
+
+        // Monotonic guard: position must never go backwards during playback.
+        // The stored position = af->pts - latencySec can decrease slightly
+        // because SDL audio latency fluctuates between frame writes.
+        double last = impl_->lastReportedPos_.load(std::memory_order_acquire);
+        if (pos < last) {
+            pos = last;
+        } else {
+            impl_->lastReportedPos_.store(pos, std::memory_order_release);
+        }
+        return pos;
     }
-    return impl_->position.load();
+
+    pos = impl_->position.load(std::memory_order_acquire);
+    impl_->lastReportedPos_.store(pos, std::memory_order_release);
+    return pos;
 }
 
 double FFPlayer::getDuration() const {

@@ -44,6 +44,7 @@ set(_HLPLAYER_DLLS
     $<TARGET_FILE:hlplayer_render>
     $<TARGET_FILE:hlplayer_qml>
     $<TARGET_FILE:hlplayer_camera>
+    $<TARGET_FILE:hlplayer_asr>
 )
 
 add_custom_command(TARGET hlplayer_app POST_BUILD
