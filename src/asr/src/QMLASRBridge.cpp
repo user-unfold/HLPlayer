@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <filesystem>
 #include <memory>
 #include <variant>
 
@@ -21,7 +22,7 @@ namespace asr {
 namespace defaults {
     constexpr int kGpuDevice = 1;           // Discrete GPU (device 1 = NVIDIA on dual-GPU laptops)
     constexpr int kMaxSegmentLengthMs = 3000;
-    constexpr int kAudioContextMs = 500;
+    constexpr int kAudioContextMs = 200;
     constexpr float kVadThreshold = 0.3f;
     constexpr size_t kMaxQueueSize = 500;
 }
@@ -44,6 +45,7 @@ struct QMLASRBridge::Impl {
     int asrStateSubscriptionId = -1;
     int playerStateSubscriptionId = -1;
     QTimer* eventDispatchTimer = nullptr;
+    QTimer* subtitleSyncTimer = nullptr;
     std::unique_ptr<ASRPipeline> pipeline;
     QObject* qmlPlayer = nullptr;
     QMLASRBridge* owner = nullptr;
@@ -56,6 +58,10 @@ struct QMLASRBridge::Impl {
     std::chrono::steady_clock::time_point lastSubtitleUpdate_;
     static constexpr int kMinDisplayIntervalMs = 600;
     std::atomic<bool> destroyed_{false};
+
+    // Position-driven subtitle display
+    std::vector<asr::SubtitleSegment> pendingSegments_;
+    double currentSubtitleEndTime_ = 0.0;
 };
 
 QMLASRBridge::QMLASRBridge(EventBus* eventBus, QObject* parent)
@@ -72,6 +78,12 @@ QMLASRBridge::QMLASRBridge(EventBus* eventBus, QObject* parent)
     });
     impl_->eventDispatchTimer->start();
 
+    impl_->subtitleSyncTimer = new QTimer(this);
+    impl_->subtitleSyncTimer->setInterval(50);
+    connect(impl_->subtitleSyncTimer, &QTimer::timeout, this, [this]() {
+        updateSubtitleFromPosition();
+    });
+
     setupEventBusSubscription();
     spdlog::info("HLPlayer::QMLASRBridge constructed");
 }
@@ -86,6 +98,9 @@ QMLASRBridge::~QMLASRBridge() {
     }
     if (impl_->eventDispatchTimer) {
         impl_->eventDispatchTimer->stop();
+    }
+    if (impl_->subtitleSyncTimer) {
+        impl_->subtitleSyncTimer->stop();
     }
     if (impl_->subtitleSubscriptionId >= 0 && impl_->eventBus) {
         impl_->eventBus->unsubscribe(impl_->subtitleSubscriptionId);
@@ -249,20 +264,23 @@ void QMLASRBridge::handleSubtitleReadyEvent(const QString& text, const QString& 
                                             double startTime, double endTime,
                                             const QString& language, int sequenceId) {
     Q_UNUSED(language)
-    Q_UNUSED(sequenceId)
 
     if (text.isEmpty()) return;
 
-    // Throttle display updates to prevent flickering during backlog processing
-    auto now = std::chrono::steady_clock::now();
-    auto msSinceLastUpdate = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - impl_->lastSubtitleUpdate_).count();
-    if (msSinceLastUpdate < Impl::kMinDisplayIntervalMs) {
-        return;
-    }
+    // Store segment for position-based lookup (seek-back, replay)
+    asr::SubtitleSegment seg;
+    seg.text = text.toStdString();
+    seg.translation = translation.toStdString();
+    seg.startTime = startTime;
+    seg.endTime = endTime;
+    seg.language = language.toStdString();
+    seg.sequenceId = sequenceId;
+    impl_->pendingSegments_.push_back(std::move(seg));
 
-    impl_->lastSubtitleUpdate_ = now;
+    // Display immediately for live playback (ASR latency means position is past endTime)
+    impl_->lastSubtitleUpdate_ = std::chrono::steady_clock::now();
     impl_->currentSubtitleText = text;
+    impl_->currentSubtitleEndTime_ = endTime;
     emit currentSubtitleTextChanged();
 
     if (!translation.isEmpty()) {
@@ -270,8 +288,77 @@ void QMLASRBridge::handleSubtitleReadyEvent(const QString& text, const QString& 
         emit translatedSubtitleTextChanged();
     }
 
-    spdlog::info("QMLASRBridge: displayed subtitle '{}' (start={:.1f}s, end={:.1f}s)",
-                 text.toUtf8().toStdString(), startTime, endTime);
+    spdlog::info("QMLASRBridge: subtitle '{}' [{:.1f}-{:.1f}s] seq={}",
+                 text.toUtf8().toStdString(), startTime, endTime, sequenceId);
+}
+
+void QMLASRBridge::updateSubtitleFromPosition() {
+    if (!impl_->qmlPlayer || impl_->pendingSegments_.empty()) return;
+
+    double pos = impl_->qmlPlayer->property("position").toDouble();
+
+    if (impl_->pipeline && impl_->pipeline->state() == ASRState::Running) {
+        // Live ASR: subtitles arrive via handleSubtitleReadyEvent with latency.
+        // Clear subtitle when position has moved well past its endTime (2s buffer
+        // to let the user finish reading).  The next subtitle callback replaces it.
+        if (!impl_->currentSubtitleText.isEmpty()) {
+            constexpr double kClearBufferSeconds = 2.0;
+            if (pos > impl_->currentSubtitleEndTime_ + kClearBufferSeconds) {
+                impl_->currentSubtitleText = "";
+                emit currentSubtitleTextChanged();
+                impl_->translatedSubtitleText = "";
+                emit translatedSubtitleTextChanged();
+                impl_->currentSubtitleEndTime_ = 0.0;
+                return;
+            }
+        }
+
+        // Seek-back: if no subtitle showing and position falls within a known segment
+        if (impl_->currentSubtitleText.isEmpty()) {
+            for (const auto& seg : impl_->pendingSegments_) {
+                if (seg.startTime <= pos && pos <= seg.endTime) {
+                    impl_->currentSubtitleText = QString::fromUtf8(seg.text);
+                    impl_->currentSubtitleEndTime_ = seg.endTime;
+                    emit currentSubtitleTextChanged();
+                    if (!seg.translation.empty()) {
+                        impl_->translatedSubtitleText = QString::fromUtf8(seg.translation);
+                        emit translatedSubtitleTextChanged();
+                    }
+                    return;
+                }
+            }
+        }
+    } else {
+        // Pipeline not running — position-based display for seek/pause/replay
+        if (!impl_->currentSubtitleText.isEmpty()) {
+            if (pos > impl_->currentSubtitleEndTime_ + 1.0) {
+                impl_->currentSubtitleText = "";
+                emit currentSubtitleTextChanged();
+                impl_->translatedSubtitleText = "";
+                emit translatedSubtitleTextChanged();
+                impl_->currentSubtitleEndTime_ = 0.0;
+            }
+            return;
+        }
+
+        for (const auto& seg : impl_->pendingSegments_) {
+            if (seg.startTime <= pos && pos <= seg.endTime) {
+                impl_->currentSubtitleText = QString::fromUtf8(seg.text);
+                impl_->currentSubtitleEndTime_ = seg.endTime;
+                emit currentSubtitleTextChanged();
+                if (!seg.translation.empty()) {
+                    impl_->translatedSubtitleText = QString::fromUtf8(seg.translation);
+                    emit translatedSubtitleTextChanged();
+                }
+                return;
+            }
+        }
+    }
+
+    // Purge segments far behind current position
+    auto it = std::remove_if(impl_->pendingSegments_.begin(), impl_->pendingSegments_.end(),
+        [pos](const auto& seg) { return seg.endTime < pos - 30.0; });
+    impl_->pendingSegments_.erase(it, impl_->pendingSegments_.end());
 }
 
 void QMLASRBridge::handleASRStateChangedEvent(int oldState, int newState) {
@@ -361,9 +448,9 @@ void QMLASRBridge::startPipeline() {
 
     impl_->pipeline->setSubtitleCallback([this](const std::vector<SubtitleSegment>& segments) {
         if (segments.empty()) return;
-        const auto& seg = segments.back();
-        spdlog::info("QMLASRBridge: subtitle callback fired, text='{}', lang='{}'", seg.text, seg.language);
-        if (impl_->eventBus) {
+        if (!impl_->eventBus) return;
+        for (const auto& seg : segments) {
+            spdlog::info("QMLASRBridge: subtitle callback fired, text='{}', lang='{}'", seg.text, seg.language);
             SubtitleReadyPayload payload;
             payload.text = seg.text;
             payload.translation = seg.translation;
@@ -402,6 +489,9 @@ void QMLASRBridge::startPipeline() {
 
     impl_->pipelineStartTime_ = std::chrono::steady_clock::now();
     impl_->lastSubtitleUpdate_ = {};
+    impl_->pendingSegments_.clear();
+    impl_->currentSubtitleEndTime_ = 0.0;
+    impl_->subtitleSyncTimer->start();
 
     spdlog::info("QMLASRBridge: ASR pipeline started with model {}", modelPath);
 }
@@ -420,6 +510,10 @@ void QMLASRBridge::stopPipeline() {
     impl_->pipeline->stop();
     impl_->pipeline->reset();
     impl_->pipeline->shutdown();
+
+    impl_->subtitleSyncTimer->stop();
+    impl_->pendingSegments_.clear();
+    impl_->currentSubtitleEndTime_ = 0.0;
 
     impl_->currentSubtitleText = "";
     emit currentSubtitleTextChanged();

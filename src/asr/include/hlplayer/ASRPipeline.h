@@ -150,6 +150,11 @@ private:
     // Resampler configuration state
     bool resamplerConfigured_ = false;
 
+    // PTS tracking: compute effective PTS from accumulated resampled output
+    // to eliminate drift caused by resampler buffering.
+    double resampledBasePts_ = -1.0;
+    int64_t totalResampledSamples_ = 0;
+
     std::chrono::steady_clock::time_point lastUsedTime_;
     std::chrono::seconds cacheDuration_{300};
     bool modelCached_{false};

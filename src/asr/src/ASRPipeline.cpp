@@ -233,6 +233,10 @@ void ASRPipeline::reset() {
 
     // Reset resampler
     resampler_.reset();
+
+    // Reset PTS tracking
+    resampledBasePts_ = -1.0;
+    totalResampledSamples_ = 0;
 }
 
 void ASRPipeline::feedAudioFrame(const AudioFrame& frame) {
@@ -369,8 +373,13 @@ void ASRPipeline::workerLoop() {
                 continue;
             }
 
-            // Feed resampled audio to the engine
-            engine_->feedAudio(samples.data(), samples.size(), rawFrame.pts);
+            if (resampledBasePts_ < 0.0) {
+                resampledBasePts_ = rawFrame.pts;
+            }
+            double effectivePts = resampledBasePts_ + static_cast<double>(totalResampledSamples_) / 16000.0;
+            totalResampledSamples_ += static_cast<int64_t>(samples.size());
+
+            engine_->feedAudio(samples.data(), samples.size(), effectivePts);
 
             // Check for results
             auto results = engine_->getResults();

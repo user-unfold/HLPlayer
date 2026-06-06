@@ -118,6 +118,7 @@ private:
     void handleASRStateChangedEvent(int oldState, int newState);
     void beginPhasedPreload();
     void startPhase2Upgrade();
+    void updateSubtitleFromPosition();
     std::string findBestAvailableModel(const std::vector<std::string>& priority) const;
 
     struct Impl;
