@@ -201,14 +201,14 @@ void QMLPlayer::handleStateChangedEvent(int oldState, int newState) {
         }
     }
 
-    if (newState == static_cast<int>(PlayerState_Error) ||
-        newState == static_cast<int>(PlayerState_End)) {
+    if (newState == static_cast<int>(PlayerState_Error)) {
         impl_->positionTimer->stop();
     }
 
     if (newState == static_cast<int>(PlayerState_End)) {
-        // Don't snap position on End state.  The backend position naturally
-        // reflects the end of the file.  Let the position timer handle updates.
+        // Keep the position timer running so the progress bar smoothly
+        // reaches duration while the refresh thread drains remaining frames.
+        // The timer is stopped when the player returns to Idle (e.g. next file).
     }
 
     if (newState == static_cast<int>(PlayerState_Idle)) {

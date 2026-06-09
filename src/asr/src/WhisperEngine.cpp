@@ -138,7 +138,6 @@ void WhisperEngine::feedAudio(const float* samples, size_t count, double pts) {
         constexpr size_t kVADFrameSize = 480;           // 30ms @ 16kHz
         constexpr int kMinSilenceFrames = 7;             // 210ms silence → end segment
         constexpr int kMinSpeechFrames = 6;              // 180ms minimum speech
-        constexpr size_t kMaxBufferSamples = 16000 * 4;  // 4s force-split
         constexpr size_t kMinExtractSamples = 4800;      // 300ms minimum extract
 
         bool shouldExtract = false;
@@ -176,10 +175,14 @@ void WhisperEngine::feedAudio(const float* samples, size_t count, double pts) {
             if (shouldExtract) break;
         }
 
-        // Force-split if buffer grows too large (continuous speech without pause)
-        if (!shouldExtract && audioBuffer_.size() >= kMaxBufferSamples) {
+        // Force-split if buffer grows too large (continuous speech without pause).
+        // First segment uses a smaller threshold to reduce startup latency.
+        const size_t maxBuffer = (lastRecognizedEndTime_ == 0.0)
+            ? 16000 * 2   // 2s for first segment → first subtitle ~2s after enabling
+            : 16000 * 4;  // 4s for subsequent segments
+        if (!shouldExtract && audioBuffer_.size() >= maxBuffer) {
             shouldExtract = true;
-            extractEndSamples = kMaxBufferSamples;
+            extractEndSamples = maxBuffer;
             extractSpeechStart = vadState_.inSpeech ? vadState_.speechStartSample : 0;
             vadState_.inSpeech = false;
             vadState_.silenceFrames = 0;
@@ -453,8 +456,9 @@ std::vector<SubtitleSegment> WhisperEngine::runInference(const std::vector<float
                 while (!textStr.empty() && (textStr.front() == ' ' || textStr.front() == '\t'))
                     textStr.erase(0, 1);
 
-                if (textStr.empty()) {
-                    spdlog::info("WhisperEngine: segment {} fully deduplicated, skipping", i);
+                // Skip if dedup leaves a meaningless fragment (< 3 CJK chars / 9 bytes)
+                if (textStr.size() < 9) {
+                    spdlog::info("WhisperEngine: segment {} too short after dedup ('{}'), skipping", i, textStr);
                     lastRecognizedEndTime_ = std::max(lastRecognizedEndTime_, segEnd);
                     continue;
                 }

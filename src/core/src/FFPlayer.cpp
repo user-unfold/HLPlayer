@@ -105,7 +105,18 @@ struct FFPlayer::Impl {
     }
 
     void completeEndTransition() {
-        if (audioRenderer) audioRenderer->pause();
+        // Wait for remaining audio to play through the device buffer
+        // before pausing the renderer.  This prevents cutting off the
+        // tail of the audio when the decode loops finish before the
+        // audio device has fully drained.
+        if (audioRenderer) {
+            int drainMs = audioRenderer->getLatencyMs();
+            if (drainMs > 0) {
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(std::min(drainMs + 50, 500)));
+            }
+            audioRenderer->pause();
+        }
         PlayerState old = state.exchange(PlayerState_End);
         if (old != PlayerState_End) {
             Event e{EventType::StateChanged, 0.0,
@@ -278,6 +289,9 @@ Result<void> FFPlayer::play() {
         impl_->paused.store(false);
         if (impl_->refreshThread) impl_->refreshThread->resume();
         if (impl_->audioRenderer) impl_->audioRenderer->resume();
+        // Re-anchor the external clock at the paused position so wall-clock
+        // time spent paused does not shift the sync forward.
+        impl_->syncClock.initExternalClock(impl_->position.load());
         PlayerState old = impl_->state.exchange(PlayerState_Playing);
         impl_->publishStateChanged(old, PlayerState_Playing);
         return Result<void>::success();
@@ -303,6 +317,8 @@ Result<void> FFPlayer::play() {
     impl_->endTransitioning_.store(false);
     impl_->endRequested_.store(false);
     impl_->syncClock.reset();
+    impl_->syncClock.initExternalClock(0.0);
+    impl_->syncClock.setMode(SyncClockMode::ExternalClock);
 
     impl_->videoPacketQueue.restart();
     impl_->audioPacketQueue.restart();
@@ -400,6 +416,8 @@ Result<void> FFPlayer::seek(double seconds) {
     // Without this, getPosition() returns stale getMasterClock() during the
     // demuxer seek (which can take 50-200ms), causing visible position snap-back.
     impl_->syncClock.reset();
+    impl_->syncClock.initExternalClock(seconds);
+    impl_->syncClock.setMode(SyncClockMode::ExternalClock);
     impl_->syncClock.setAudioClock(seconds);
     impl_->syncClock.setVideoClock(seconds);
     impl_->position.store(seconds);
@@ -536,18 +554,19 @@ double FFPlayer::getPosition() const {
     double pos = 0.0;
 
     if (impl_->state.load() == PlayerState_Playing) {
-        // Use the stored position (updated atomically per-frame in the audio
-        // decode loop) instead of getMasterClock().  getMasterClock() reads
-        // two separate atomics (audioClock and audioDeviceLatency) that are
-        // updated at different points in the decode loop, causing read-skew
-        // jitter: the UI thread can observe a new latency paired with a stale
-        // clock (or vice-versa), producing a position that oscillates ±20-50 ms.
-        pos = impl_->position.load(std::memory_order_acquire);
-
-        // Fallback for video-only playback (no audio frames decoded yet)
-        if (pos <= 0.0) {
-            double master = impl_->syncClock.getMasterClock();
-            if (master > 0.0) pos = master;
+        // In ExternalClock mode the wall clock drives sync, avoiding the
+        // accumulated drift that the audio-clock path suffers from back-
+        // pressure sleep overhead.
+        if (impl_->syncClock.mode() == SyncClockMode::ExternalClock) {
+            double dur = impl_->duration.load();
+            pos = impl_->syncClock.getExternalClock();
+            if (dur > 0.0 && pos > dur) pos = dur;
+        } else {
+            pos = impl_->position.load(std::memory_order_acquire);
+            if (pos <= 0.0) {
+                double master = impl_->syncClock.getMasterClock();
+                if (master > 0.0) pos = master;
+            }
         }
 
         // Monotonic guard: position must never go backwards during playback.
@@ -590,12 +609,6 @@ void FFPlayer::videoDecodeLoop() {
         if (!pkt) {
             // Queue is empty.  Check if we should mark decoding complete.
             if (impl_->demuxerDone.load() && impl_->videoPacketQueue.empty() && !impl_->paused.load()) {
-                // Wait for audio renderer to drain — prevents premature End-state transition
-                // which would freeze UI while audio is still playing through the device buffer.
-                if (impl_->audioRenderer && impl_->audioRenderer->getLatencyMs() > 50) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                    continue;
-                }
                 // Only mark as done if we've successfully decoded at least one frame
                 // after the most recent seek (indicated by videoSeekTarget_ < 0).
                 // This prevents spurious End transitions on short files.
@@ -681,12 +694,6 @@ void FFPlayer::audioDecodeLoop() {
         if (!pkt) {
             // Queue is empty.  Check if we should mark decoding complete.
             if (impl_->demuxerDone.load() && impl_->audioPacketQueue.empty() && !impl_->paused.load()) {
-                // Wait for audio renderer to drain its buffered data before marking done.
-                // Premature End-state transition would freeze the UI while audio is still playing.
-                if (impl_->audioRenderer && impl_->audioRenderer->getLatencyMs() > 50) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                    continue;
-                }
                 // Only mark as done if we've successfully decoded at least one frame
                 // after the most recent seek (indicated by audioSeekTarget_ < 0).
                 if (!impl_->audioDecodeDone_.load() && impl_->audioSeekTarget_.load() < 0.0) {
@@ -759,13 +766,17 @@ void FFPlayer::audioDecodeLoop() {
             for (auto& af : framesToRender) {
                 // Render audio unconditionally (must keep flowing to avoid buffer underrun)
                 if (impl_->audioRenderer) {
-                    // Back-pressure: wait if renderer buffer is full.
-                    // But skip waiting when paused - SDL doesn't drain its buffer
-                    // while paused, so we'd deadlock.
-                    while (impl_->audioRenderer->getLatencyMs() > 200 &&
+                    // Back-pressure keeps the audio decode loop roughly aligned with
+                    // real-time so that the End state is not triggered prematurely.
+                    // Sleeping for the exact excess (instead of polling at 5 ms) avoids
+                    // the per-frame overhead that accumulates into multi-second drift.
+                    int latencyMs = impl_->audioRenderer->getLatencyMs();
+                    while (latencyMs > 200 &&
                            impl_->running.load() &&
                            !impl_->paused.load()) {
-                        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                        std::this_thread::sleep_for(
+                            std::chrono::milliseconds(std::max(latencyMs - 200, 1)));
+                        latencyMs = impl_->audioRenderer->getLatencyMs();
                     }
                     impl_->audioRenderer->write(af->data.data(), af->data.size());
                 }

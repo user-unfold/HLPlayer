@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
+import Qt.labs.platform as Platform
 import HLPlayer
 
 ApplicationWindow {
@@ -30,6 +31,12 @@ ApplicationWindow {
     readonly property int space1: 8
     readonly property int space2: 16
     readonly property int space3: 24
+
+    // SRT Export state
+    property bool srtExportToggleChecked: false
+    property string srtExportDir: ""
+    property string srtExportFilename: ""
+    property bool srtExportErrorVisible: false
 
     onPlaybackSpeedChanged: {
         showOsd("Speed: " + playbackSpeed.toFixed(2) + "x");
@@ -262,6 +269,26 @@ ApplicationWindow {
             playlist.currentIndex = playlist.count - urls.length
             loadAndPlay(playlist.currentIndex)
         }
+    }
+
+    Platform.FolderDialog {
+        id: folderDialog
+        title: "选择保存目录"
+        onAccepted: {
+            var dirPath = folder.toString()
+            if (dirPath.startsWith("file:///")) {
+                dirPath = decodeURIComponent(dirPath.substring(8))
+            }
+            root.srtExportDir = dirPath
+        }
+    }
+
+    function getVideoDir() {
+        var source = player.source ? player.source.toString() : ""
+        if (source.startsWith("file:///")) source = decodeURIComponent(source.substring(8))
+        else if (source.startsWith("file://")) source = decodeURIComponent(source.substring(7))
+        var lastSlash = Math.max(source.lastIndexOf("/"), source.lastIndexOf("\\"))
+        return lastSlash > 0 ? source.substring(0, lastSlash) : ""
     }
 
     function loadAndPlay(index) {
@@ -1199,9 +1226,256 @@ onClicked: {
                             }
 
                             Popup {
+                                id: srtExportDialog
+                                width: 380
+                                height: 220
+                                modal: true
+                                focus: true
+                                closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                                parent: Overlay.overlay
+                                anchors.centerIn: parent
+
+                                background: Rectangle {
+                                    color: "#cc1a1a2e"
+                                    radius: 12
+                                    border.color: "#334FC3F7"
+                                    border.width: 1
+                                }
+
+                                contentItem: Item {
+                                    anchors.fill: parent
+
+                                    // Title
+                                    Text {
+                                        id: exportDialogTitle
+                                        text: "导出字幕设置"
+                                        font.pixelSize: 14
+                                        font.bold: true
+                                        font.family: "IBM Plex Sans"
+                                        color: "#ffffff"
+                                        anchors.top: parent.top
+                                        anchors.left: parent.left
+                                        anchors.margins: root.space2
+                                    }
+
+                                    // Close button
+                                    Rectangle {
+                                        width: 28
+                                        height: 28
+                                        radius: 14
+                                        color: "transparent"
+                                        anchors.top: parent.top
+                                        anchors.right: parent.right
+                                        anchors.margins: root.space2
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "✕"
+                                            font.pixelSize: 16
+                                            font.family: "IBM Plex Sans"
+                                            color: "#999999"
+                                        }
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            hoverEnabled: true
+                                            onHoveredChanged: {
+                                                parent.color = containsMouse ? "#334FC3F7" : "transparent"
+                                                parent.children[0].color = containsMouse ? "#4FC3F7" : "#999999"
+                                            }
+                                            onClicked: {
+                                                srtExportDialog.close()
+                                                srtExportToggleChecked = false
+                                            }
+                                        }
+                                    }
+
+                                    Column {
+                                        anchors.fill: parent
+                                        anchors.topMargin: root.space3 + root.space1
+                                        anchors.leftMargin: root.space2
+                                        anchors.rightMargin: root.space2
+                                        anchors.bottomMargin: root.space2
+                                        spacing: root.space2
+
+                                        // Save location
+                                        Text {
+                                            text: "保存位置"
+                                            font.pixelSize: 11
+                                            font.family: "IBM Plex Sans"
+                                            color: "#999999"
+                                        }
+
+                                        Row {
+                                            spacing: root.space1
+                                            width: parent.width
+
+                                            Rectangle {
+                                                width: parent.width - 56
+                                                height: 28
+                                                radius: 4
+                                                color: "#333333"
+
+                                                Text {
+                                                    anchors.fill: parent
+                                                    anchors.leftMargin: 8
+                                                    anchors.rightMargin: 8
+                                                    verticalAlignment: Text.AlignVCenter
+                                                    text: root.srtExportDir || "（未加载视频）"
+                                                    font.pixelSize: 11
+                                                    font.family: "IBM Plex Sans"
+                                                    color: root.srtExportDir ? "#cccccc" : "#666666"
+                                                    elide: Text.ElideMiddle
+                                                }
+                                            }
+
+                                            Rectangle {
+                                                width: 48
+                                                height: 28
+                                                radius: 4
+                                                color: "#334FC3F7"
+                                                border.color: "#4FC3F7"
+                                                border.width: 1
+
+                                                Text {
+                                                    anchors.centerIn: parent
+                                                    text: "浏览"
+                                                    font.pixelSize: 11
+                                                    font.family: "IBM Plex Sans"
+                                                    color: "#4FC3F7"
+                                                }
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: folderDialog.open()
+                                                }
+                                            }
+                                        }
+
+                                        // Filename label
+                                        Text {
+                                            text: "文件名称"
+                                            font.pixelSize: 11
+                                            font.family: "IBM Plex Sans"
+                                            color: "#999999"
+                                        }
+
+                                        // Filename input
+                                        TextField {
+                                            id: filenameTextField
+                                            width: parent.width
+                                            height: 32
+                                            text: root.srtExportFilename
+                                            placeholderText: "输入文件名"
+                                            font.pixelSize: 12
+                                            font.family: "IBM Plex Sans"
+                                            color: "#ffffff"
+                                            background: Rectangle {
+                                                color: "#333333"
+                                                radius: 4
+                                                border.color: filenameTextField.activeFocus ? "#4FC3F7" : "#444444"
+                                                border.width: filenameTextField.activeFocus ? 2 : 1
+                                            }
+
+                                            onTextChanged: {
+                                                root.srtExportFilename = text
+                                            }
+                                        }
+                                    }
+
+                                    // Confirm button
+                                    Rectangle {
+                                        width: 80
+                                        height: 32
+                                        radius: 4
+                                        anchors.bottom: parent.bottom
+                                        anchors.right: parent.right
+                                        anchors.margins: root.space2
+                                        color: "#4FC3F7"
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: "确定"
+                                            font.pixelSize: 12
+                                            font.family: "IBM Plex Sans"
+                                            color: "#ffffff"
+                                        }
+
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                if (root.srtExportDir === "") {
+                                                    root.srtExportErrorVisible = true
+                                                    errorToast.text = "请先打开视频文件"
+                                                    errorTimer.restart()
+                                                    return
+                                                }
+                                                if (filenameTextField.text.trim() === "") {
+                                                    root.srtExportErrorVisible = true
+                                                    errorToast.text = "文件名不能为空"
+                                                    errorTimer.restart()
+                                                    return
+                                                }
+                                                var filePath = root.srtExportDir + "/" + filenameTextField.text.trim() + ".srt"
+                                                asrBridge.srtExportPath = filePath
+                                                asrBridge.setSrtExportEnabled(true)
+                                                srtExportDialog.close()
+                                            }
+                                        }
+                                    }
+
+                                    // Error toast
+                                    Text {
+                                        id: errorToast
+                                        text: "文件名不能为空"
+                                        font.pixelSize: 11
+                                        font.family: "IBM Plex Sans"
+                                        color: "#FF4444"
+                                        visible: root.srtExportErrorVisible
+                                        anchors.bottom: parent.bottom
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        anchors.bottomMargin: root.space2
+                                        opacity: visible ? 1.0 : 0.0
+                                        Behavior on opacity {
+                                            NumberAnimation { duration: 300 }
+                                        }
+                                    }
+
+                                    Timer {
+                                        id: errorTimer
+                                        interval: 3000
+                                        onTriggered: {
+                                            root.srtExportErrorVisible = false
+                                        }
+                                    }
+                                }
+
+                                onOpened: {
+                                    // Auto-detect video directory
+                                    root.srtExportDir = getVideoDir()
+                                    // Set default filename
+                                    var now = new Date()
+                                    var yyyy = now.getFullYear()
+                                    var mm = String(now.getMonth() + 1).padStart(2, '0')
+                                    var dd = String(now.getDate()).padStart(2, '0')
+                                    var hh = String(now.getHours()).padStart(2, '0')
+                                    var mi = String(now.getMinutes()).padStart(2, '0')
+                                    var ss = String(now.getSeconds()).padStart(2, '0')
+                                    var datetime = yyyy + mm + dd + "_" + hh + mi + ss
+                                    var baseName = root.currentTitle.replace(/\.[^.]+$/, '')
+                                    var defaultFilename = baseName + "_" + datetime + "_中文字幕"
+                                    filenameTextField.text = defaultFilename
+                                    root.srtExportFilename = defaultFilename
+                                }
+                            }
+
+                            Popup {
                                 id: subtitleSettingsPopup
                                 x: subtitleBtn.mapToItem(null, 0, 0).x - 200
-                                y: subtitleBtn.mapToItem(null, 0, 0).y - 200
+                                y: subtitleBtn.mapToItem(null, 0, 0).y - 280
                                 width: 220
                                 padding: 16
                                 modal: true
@@ -1336,10 +1610,90 @@ onClicked: {
                                                 }
                                             }
                                         }
+                                        }
+                                    }
+
+                                    // Export SRT Toggle Card
+                                    Rectangle {
+                                        width: parent.width
+                                        height: 56
+                                        radius: 4
+                                        color: "transparent"
+
+                                        Row {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 0
+                                            anchors.rightMargin: 0
+                                            spacing: 8
+
+                                            // Left side: title and subtitle
+                                            Column {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                spacing: 2
+
+                                                Text {
+                                                    text: "导出字幕"
+                                                    font.pixelSize: 12
+                                                    font.bold: true
+                                                    font.family: "IBM Plex Sans"
+                                                    color: "#ffffff"
+                                                }
+
+                                                Text {
+                                                    text: "开启后将识别结果导出为SRT文件"
+                                                    font.pixelSize: 10
+                                                    font.family: "IBM Plex Sans"
+                                                    color: "#999999"
+                                                }
+                                            }
+
+                                            Item { width: 1; height: 1 }
+
+                                            // Right side: toggle switch
+                                            Rectangle {
+                                                width: 44
+                                                height: 24
+                                                radius: 12
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                color: root.srtExportToggleChecked ? "#4FC3F7" : "#666666"
+
+                                                Behavior on color {
+                                                    ColorAnimation { duration: 200 }
+                                                }
+
+                                                Rectangle {
+                                                    width: 18
+                                                    height: 18
+                                                    radius: 9
+                                                    color: "#ffffff"
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    x: root.srtExportToggleChecked ? 23 : 3
+
+                                                    Behavior on x {
+                                                        NumberAnimation { duration: 200; easing.type: Easing.InOutQuad }
+                                                    }
+                                                }
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        if (!root.srtExportToggleChecked) {
+                                                            // Toggle ON: open the export dialog
+                                                            root.srtExportToggleChecked = true
+                                                            srtExportDialog.open()
+                                                        } else {
+                                                            // Toggle OFF: disable export
+                                                            root.srtExportToggleChecked = false
+                                                            asrBridge.setSrtExportEnabled(false)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
-                        }
                     }
                     } // controlsBar Rectangle
                 } // gradient backdrop Rectangle

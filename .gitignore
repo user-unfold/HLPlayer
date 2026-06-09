@@ -4,6 +4,7 @@
 build/
 build_*/
 .cache/
+out/
 
 # ============================================================================
 # IDE / Editor
@@ -18,6 +19,7 @@ CMakeSettings.json
 .idea/
 *.swp
 *.swo
+.clangd
 
 # ============================================================================
 # AI Agent / Tool configs
@@ -25,39 +27,49 @@ CMakeSettings.json
 .sisyphus/
 .claude/
 .opencode/
+.omo/
+
+# ============================================================================
+# AI Models (large binary files — users download separately)
+# ============================================================================
+models/
 
 # ============================================================================
 # Third-party binary dependencies (too large for git)
 # ============================================================================
-# FFmpeg prebuilt binaries (headers kept, binaries excluded)
+# FFmpeg prebuilt (headers + link libs kept for building; runtime DLLs shipped in release)
 ffmpeg-7.1.1/bin/
-ffmpeg-7.1.1/lib/
+ffmpeg-7.1.1/doc/
+ffmpeg-7.1.1/presets/
+ffmpeg-7.1.1/fonts/
 ffmpeg-7.1.1/share/
+ffmpeg-7.1.1/install.json
+ffmpeg-7.1.1/manifest.json
 ffmpeg-repo/
 ffmpeg/
 
 # SDL2 prebuilt
 SDL2-2.30.8/
 
-# NCNN source (referenced via absolute path D:/ncnn in CMakeLists.txt)
-# Not in repo, but listing for completeness
+# NCNN source (referenced via absolute path, not in repo)
 
 # FluentUI bundled DLLs
 3rdparty/FluentUI/3rdparty/msvc/
 3rdparty/FluentUI/3rdparty/mingw/
 
 # ============================================================================
-# Docs (不提交文档)
+# Localization (generated .ts files, not source)
 # ============================================================================
-docs/
+lang/
 
 # ============================================================================
-# UI screenshots (不提交截图)
+# Docs / Screenshots
 # ============================================================================
+docs/
 UI/
 
 # ============================================================================
-# Tests (不提交测试代码和测试产物)
+# Tests
 # ============================================================================
 tests/
 Testing/
@@ -66,16 +78,17 @@ test_error.txt
 test_output.txt
 
 # ============================================================================
-# Markdown files (不提交 .md，但保留 README.md)
+# Markdown files (keep only README.md)
 # ============================================================================
 *.md
 !README.md
 
 # ============================================================================
-# Runtime outputs (录像、临时文件)
+# Runtime outputs
 # ============================================================================
 recordings/
 nul
+*.srt
 
 # ============================================================================
 # Compiled objects

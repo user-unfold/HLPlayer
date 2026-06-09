@@ -49,6 +49,8 @@ class HLPLAYER_ASR_BRIDGE_API QMLASRBridge : public QObject {
     Q_PROPERTY(QString fontColor READ fontColor WRITE setFontColor NOTIFY fontColorChanged)
     Q_PROPERTY(bool modelReady READ modelReady NOTIFY modelReadyChanged)
     Q_PROPERTY(QString modelLoadingStatus READ modelLoadingStatus NOTIFY modelLoadingStatusChanged)
+    Q_PROPERTY(bool srtExportEnabled READ srtExportEnabled WRITE setSrtExportEnabled NOTIFY srtExportEnabledChanged)
+    Q_PROPERTY(QString srtExportPath READ srtExportPath WRITE setSrtExportPath NOTIFY srtExportPathChanged)
 
 public:
     enum ASRDisplayMode {
@@ -85,11 +87,16 @@ public:
     Q_INVOKABLE void toggleASR();
     Q_INVOKABLE void setModel(const QString& modelPath);
     Q_INVOKABLE void exportSRT(const QString& filePath);
+    Q_INVOKABLE void setSrtExportEnabled(bool enabled);
+    Q_INVOKABLE void setSrtExportPath(const QString& path);
     Q_INVOKABLE void initFromPlayer(QObject* qmlPlayer);
     Q_INVOKABLE void setModelDirectory(const QString& dir);
 
     bool modelReady() const;
     QString modelLoadingStatus() const;
+
+    bool srtExportEnabled() const;
+    QString srtExportPath() const;
 
 signals:
     void enabledChanged();
@@ -106,6 +113,9 @@ signals:
     void errorOccurred(const QString& errorMessage);
     void modelReadyChanged();
     void modelLoadingStatusChanged();
+    void srtExportEnabledChanged();
+    void srtExportPathChanged();
+    void srtExported(const QString& filePath);
 
 private:
     void setupEventBusSubscription();

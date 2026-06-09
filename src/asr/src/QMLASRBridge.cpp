@@ -3,6 +3,7 @@
 #include <hlplayer/ASRPipeline.h>
 #include <hlplayer/IAudioDecoder.h>
 
+#include <QFile>
 #include <QMetaObject>
 #include <QStandardPaths>
 #include <QtGlobal>
@@ -56,6 +57,8 @@ struct QMLASRBridge::Impl {
     bool audioCallbackRegistered = false;
     std::chrono::steady_clock::time_point pipelineStartTime_;
     std::chrono::steady_clock::time_point lastSubtitleUpdate_;
+    bool srtExportEnabled_ = false;
+    QString srtExportPath_;
     static constexpr int kMinDisplayIntervalMs = 600;
     std::atomic<bool> destroyed_{false};
 
@@ -170,6 +173,13 @@ void QMLASRBridge::setupEventBusSubscription() {
                 if (payload.newState == PlayerState_Playing) {
                     QMetaObject::invokeMethod(this, [this]() {
                         ensureAudioCallbackRegistered();
+                    }, Qt::QueuedConnection);
+                } else if (payload.newState == PlayerState_End) {
+                    QMetaObject::invokeMethod(this, [this]() {
+                        if (impl_->srtExportEnabled_ && !impl_->srtExportPath_.isEmpty()) {
+                            exportSRT(impl_->srtExportPath_);
+                            emit srtExported(impl_->srtExportPath_);
+                        }
                     }, Qt::QueuedConnection);
                 }
             }
@@ -594,13 +604,25 @@ void QMLASRBridge::exportSRT(const QString& filePath) {
         return;
     }
 
-    const std::string path = filePath.toStdString();
-    if (impl_->pipeline->subtitleManager().exportSRTFile(path)) {
-        spdlog::info("QMLASRBridge: SRT exported to {}", path);
-    } else {
-        spdlog::error("QMLASRBridge: failed to export SRT to {}", path);
+    // Use QFile for proper Unicode path handling on Windows.
+    // std::ofstream + toStdString() mangles UTF-8 paths via system locale (CP936/GBK).
+    auto& mgr = impl_->pipeline->subtitleManager();
+    std::string content = mgr.exportSRT();
+
+    QFile file(filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        spdlog::error("QMLASRBridge: failed to open SRT file: {}", filePath.toStdString());
         emit errorOccurred("Failed to export subtitles");
+        return;
     }
+
+    // UTF-8 BOM for compatibility with subtitle editors
+    file.write("\xEF\xBB\xBF");
+    file.write(content.c_str(), static_cast<qint64>(content.size()));
+    file.close();
+
+    spdlog::info("QMLASRBridge: SRT exported {} segments to {}",
+                 mgr.count(), filePath.toStdString());
 }
 
 int QMLASRBridge::fontSize() const {
@@ -661,5 +683,31 @@ void QMLASRBridge::setModelDirectory(const QString& dir) {
     beginPhasedPreload();
 }
 
+bool QMLASRBridge::srtExportEnabled() const {
+    return impl_->srtExportEnabled_;
 }
+
+void QMLASRBridge::setSrtExportEnabled(bool enabled) {
+    if (impl_->srtExportEnabled_ == enabled) return;
+    impl_->srtExportEnabled_ = enabled;
+    emit srtExportEnabledChanged();
+    spdlog::info("QMLASRBridge: SRT export {}", enabled ? "enabled" : "disabled");
+
+    if (!enabled) {
+        impl_->srtExportPath_.clear();
+    }
+}
+
+QString QMLASRBridge::srtExportPath() const {
+    return impl_->srtExportPath_;
+}
+
+void QMLASRBridge::setSrtExportPath(const QString& path) {
+    if (impl_->srtExportPath_ == path) return;
+    impl_->srtExportPath_ = path;
+    emit srtExportPathChanged();
+}
+
+}
+
 } 
