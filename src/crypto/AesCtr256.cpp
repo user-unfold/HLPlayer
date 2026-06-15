@@ -168,9 +168,6 @@ void AesCtr256::seek(uint64_t absoluteOffset) {
     m_partialSkip = static_cast<int>(absoluteOffset % 16);
     m_keystreamPos = 16;
     buildCounterBlock();
-    fprintf(stderr, "AesCtr256::seek offset=%llu block=%llu counter=%u skip=%d\n",
-            (unsigned long long)absoluteOffset, (unsigned long long)blockIndex,
-            m_counter, m_partialSkip);
 }
 
 #else

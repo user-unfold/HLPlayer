@@ -33,7 +33,7 @@ struct DecryptState {
     uint8_t* avioBuffer;       // FFmpeg AVIOContext internal buffer (64KB)
 };
 
-// Read callback for AVIOContext
+    // Read callback for AVIOContext
 int readPacket(void* opaque, uint8_t* buf, int bufSize) {
     auto* state = static_cast<DecryptState*>(opaque);
 
@@ -49,16 +49,6 @@ int readPacket(void* opaque, uint8_t* buf, int bufSize) {
     if (state->logicalPos != state->aesLogicalPos) {
         state->aes.seek(state->logicalPos);
         state->aesLogicalPos = state->logicalPos;
-    }
-
-    // Log first read after position change (detect seek)
-    static uint64_t s_lastLoggedPos = UINT64_MAX;
-    if (state->logicalPos != s_lastLoggedPos && toRead > 0) {
-        fprintf(stderr, "readPacket: pos=%llu len=%d remaining=%llu aesSynced=%d\n",
-                (unsigned long long)state->logicalPos, toRead,
-                (unsigned long long)(state->originalSize - state->logicalPos),
-                (state->logicalPos == state->aesLogicalPos) ? 1 : 0);
-        s_lastLoggedPos = state->logicalPos;
     }
 
     // Read encrypted data from physical file at headerSize + logicalPos
