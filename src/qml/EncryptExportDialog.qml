@@ -6,13 +6,11 @@ import HLPlayer
 
 Dialog {
     id: root
-    width: 420
-    height: 360
+    width: 460
+    height: 480
     modal: true
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-
-    title: qsTr("加密导出设置 / Encrypt Export Settings")
 
     property string inputPath: ""
     property string outputPath: ""
@@ -21,148 +19,273 @@ Dialog {
     readonly property int space2: 16
     readonly property int space3: 24
 
+    header: Item {}
+    footer: Item {}
+
     background: Rectangle {
-        color: "#cc1a1a2e"
+        color: "#1a1a2e"
         radius: 12
         border.color: "#334FC3F7"
         border.width: 1
     }
 
-    contentItem: Item {
-        anchors.fill: parent
+    contentItem: Rectangle {
+        color: "transparent"
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: root.space2
-            spacing: root.space2
+            anchors.margins: 20
+            spacing: 14
 
-            // Encrypt checkbox
-            CheckBox {
-                id: encryptCheckbox
-                text: qsTr("加密导出 (Encrypt Export)")
-                Layout.fillWidth: true
-                font.pixelSize: 13
+            Text {
+                text: qsTr("加密导出设置")
+                font.pixelSize: 16
+                font.bold: true
                 font.family: "IBM Plex Sans"
-                contentItem: Text {
-                    text: encryptCheckbox.text
-                    font: encryptCheckbox.font
-                    color: "#ffffff"
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: encryptCheckbox.indicator.width + root.space1
+                color: "#ffffff"
+                Layout.fillWidth: true
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                height: 1
+                color: "#333333"
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: space1
+
+                CheckBox {
+                    id: encryptCheckbox
+                    text: qsTr("加密导出")
+                    checked: true
+                    font.pixelSize: 13
+                    font.family: "IBM Plex Sans"
+                    contentItem: Text {
+                        text: encryptCheckbox.text
+                        font: encryptCheckbox.font
+                        color: "#ffffff"
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: encryptCheckbox.indicator.width + 8
+                    }
+                    indicator: Rectangle {
+                        implicitWidth: 20
+                        implicitHeight: 20
+                        x: encryptCheckbox.leftPadding
+                        anchors.verticalCenter: parent.verticalCenter
+                        radius: 4
+                        color: encryptCheckbox.checked ? "#4FC3F7" : "#2a2a3e"
+                        border.color: encryptCheckbox.checked ? "#4FC3F7" : "#555555"
+                        border.width: 1.5
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "\u2713"
+                            color: "#ffffff"
+                            font.pixelSize: 14
+                            font.bold: true
+                            visible: encryptCheckbox.checked
+                        }
+                    }
+                }
+
+                Item { Layout.fillWidth: true }
+
+                Text {
+                    text: {
+                        if (!encryptCheckbox.checked) return ""
+                        var name = root.inputPath.split("/").pop().split("\\").pop()
+                        if (name.length > 30) name = "..." + name.substring(name.length - 27)
+                        return name
+                    }
+                    color: "#888888"
+                    font.pixelSize: 11
+                    font.family: "IBM Plex Sans"
+                    visible: root.inputPath !== ""
                 }
             }
 
-            // Key mode radio buttons (shown when encrypt checked)
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: root.space1
+                spacing: 10
                 visible: encryptCheckbox.checked
 
-                ButtonGroup {
-                    id: keyModeGroup
-                    buttons: [passwordRadio, autoKeyRadio]
-                }
-
-                RadioButton {
-                    id: passwordRadio
-                    text: qsTr("使用密码 (Use Password)")
-                    checked: true
+                Rectangle {
                     Layout.fillWidth: true
-                    font.pixelSize: 12
-                    font.family: "IBM Plex Sans"
-                    contentItem: Text {
-                        text: passwordRadio.text
-                        font: passwordRadio.font
-                        color: "#cccccc"
-                        verticalAlignment: Text.AlignVCenter
-                        leftPadding: passwordRadio.indicator.width + root.space1
+                    Layout.preferredHeight: 48
+                    radius: 8
+                    color: passwordRadio.checked ? "#1e3a5f" : "#252535"
+                    border.color: passwordRadio.checked ? "#4FC3F7" : "#333344"
+                    border.width: passwordRadio.checked ? 2 : 1
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: passwordRadio.checked = true
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 12
+                        spacing: 10
+
+                        Rectangle {
+                            width: 20; height: 20
+                            radius: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: "transparent"
+                            border.color: passwordRadio.checked ? "#4FC3F7" : "#666666"
+                            border.width: 2
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: 10; height: 10
+                                radius: 5
+                                color: "#4FC3F7"
+                                visible: passwordRadio.checked
+                            }
+                        }
+
+                        ColumnLayout {
+                            spacing: 2
+                            Text {
+                                text: qsTr("使用密码")
+                                font.pixelSize: 13
+                                font.bold: true
+                                font.family: "IBM Plex Sans"
+                                color: passwordRadio.checked ? "#ffffff" : "#aaaaaa"
+                            }
+                            Text {
+                                text: qsTr("输入密码加密，播放时需要输入相同密码")
+                                font.pixelSize: 10
+                                font.family: "IBM Plex Sans"
+                                color: "#777777"
+                            }
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    RadioButton {
+                        id: passwordRadio
+                        checked: true
+                        visible: false
                     }
                 }
 
-                // Password fields
                 ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.leftMargin: root.space3
-                    spacing: root.space1
+                    Layout.leftMargin: 4
+                    spacing: 6
                     visible: passwordRadio.checked
-
-                    Text {
-                        text: qsTr("密码 (Password)")
-                        font.pixelSize: 11
-                        font.family: "IBM Plex Sans"
-                        color: "#999999"
-                    }
 
                     TextField {
                         id: passwordField
                         Layout.fillWidth: true
-                        height: 32
+                        implicitHeight: 36
                         echoMode: TextInput.Password
-                        placeholderText: qsTr("输入密码 (Enter password)")
+                        placeholderText: qsTr("输入密码 (至少8位)")
                         font.pixelSize: 12
                         font.family: "IBM Plex Sans"
                         color: "#ffffff"
                         background: Rectangle {
-                            color: "#333333"
-                            radius: 4
-                            border.color: passwordField.activeFocus ? "#4FC3F7" : "#444444"
+                            color: "#222233"
+                            radius: 6
+                            border.color: passwordField.activeFocus ? "#4FC3F7" : "#444455"
                             border.width: passwordField.activeFocus ? 2 : 1
                         }
-                    }
-
-                    Text {
-                        text: qsTr("确认密码 (Confirm Password)")
-                        font.pixelSize: 11
-                        font.family: "IBM Plex Sans"
-                        color: "#999999"
                     }
 
                     TextField {
                         id: confirmPasswordField
                         Layout.fillWidth: true
-                        height: 32
+                        implicitHeight: 36
                         echoMode: TextInput.Password
-                        placeholderText: qsTr("再次输入密码 (Re-enter password)")
+                        placeholderText: qsTr("确认密码")
                         font.pixelSize: 12
                         font.family: "IBM Plex Sans"
                         color: "#ffffff"
                         background: Rectangle {
-                            color: "#333333"
-                            radius: 4
-                            border.color: confirmPasswordField.activeFocus ? "#4FC3F7" : "#444444"
+                            color: "#222233"
+                            radius: 6
+                            border.color: confirmPasswordField.activeFocus ? "#4FC3F7" : "#444455"
                             border.width: confirmPasswordField.activeFocus ? 2 : 1
                         }
                     }
 
                     Text {
-                        text: qsTr("⚠ 忘记密码将无法恢复 (Password cannot be recovered if lost)")
+                        text: qsTr("忘记密码将无法恢复")
                         font.pixelSize: 10
                         font.family: "IBM Plex Sans"
                         color: "#FF8A65"
-                        Layout.fillWidth: true
-                        wrapMode: Text.Wrap
                     }
                 }
 
-                RadioButton {
-                    id: autoKeyRadio
-                    text: qsTr("自动生成密钥 (Auto-generate Key)")
+                Rectangle {
                     Layout.fillWidth: true
-                    font.pixelSize: 12
-                    font.family: "IBM Plex Sans"
-                    contentItem: Text {
-                        text: autoKeyRadio.text
-                        font: autoKeyRadio.font
-                        color: "#cccccc"
-                        verticalAlignment: Text.AlignVCenter
-                        leftPadding: autoKeyRadio.indicator.width + root.space1
+                    Layout.preferredHeight: 48
+                    radius: 8
+                    color: autoKeyRadio.checked ? "#1e3a5f" : "#252535"
+                    border.color: autoKeyRadio.checked ? "#4FC3F7" : "#333344"
+                    border.width: autoKeyRadio.checked ? 2 : 1
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: autoKeyRadio.checked = true
+                    }
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: 12
+                        spacing: 10
+
+                        Rectangle {
+                            width: 20; height: 20
+                            radius: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                            color: "transparent"
+                            border.color: autoKeyRadio.checked ? "#4FC3F7" : "#666666"
+                            border.width: 2
+
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: 10; height: 10
+                                radius: 5
+                                color: "#4FC3F7"
+                                visible: autoKeyRadio.checked
+                            }
+                        }
+
+                        ColumnLayout {
+                            spacing: 2
+                            Text {
+                                text: qsTr("自动生成密钥")
+                                font.pixelSize: 13
+                                font.bold: true
+                                font.family: "IBM Plex Sans"
+                                color: autoKeyRadio.checked ? "#ffffff" : "#aaaaaa"
+                            }
+                            Text {
+                                text: qsTr("系统生成密钥，加密后显示，请妥善保存")
+                                font.pixelSize: 10
+                                font.family: "IBM Plex Sans"
+                                color: "#777777"
+                            }
+                        }
+                        Item { Layout.fillWidth: true }
+                    }
+
+                    RadioButton {
+                        id: autoKeyRadio
+                        checked: false
+                        visible: false
                     }
                 }
 
                 Text {
-                    Layout.leftMargin: root.space3
                     Layout.fillWidth: true
-                    text: qsTr("密钥将在加密完成后显示，请妥善保存 (Key will be shown after encryption, keep it safe)")
+                    text: qsTr("密钥将在加密完成后显示，请妥善保存")
                     font.pixelSize: 10
                     font.family: "IBM Plex Sans"
                     color: "#FFB74D"
@@ -171,14 +294,13 @@ Dialog {
                 }
             }
 
-            // Progress section
             ColumnLayout {
                 Layout.fillWidth: true
-                spacing: root.space1
+                spacing: space1
                 visible: encryptionBridge.isProcessing
 
                 Text {
-                    text: qsTr("加密中 (Encrypting)...") + " " + Math.round(encryptionBridge.progress * 100) + "%"
+                    text: qsTr("加密中...") + " " + Math.round(encryptionBridge.progress * 100) + "%"
                     font.pixelSize: 12
                     font.family: "IBM Plex Sans"
                     color: "#ffffff"
@@ -188,13 +310,14 @@ Dialog {
                     Layout.fillWidth: true
                     value: encryptionBridge.progress
                     background: Rectangle {
-                        color: "#444444"
-                        radius: 2
+                        color: "#333344"
+                        radius: 3
+                        implicitHeight: 6
                     }
                     contentItem: Rectangle {
                         width: parent.width * encryptionBridge.progress
-                        height: parent.height
-                        radius: 2
+                        height: 6
+                        radius: 3
                         color: "#4FC3F7"
                     }
                 }
@@ -202,25 +325,28 @@ Dialog {
 
             Item { Layout.fillHeight: true }
 
-            // Buttons
             RowLayout {
                 Layout.fillWidth: true
-                spacing: root.space1
+                spacing: 12
 
                 Button {
-                    text: qsTr("取消 (Cancel)")
+                    id: cancelButton
+                    text: qsTr("取消")
                     Layout.preferredWidth: 100
+                    Layout.preferredHeight: 36
                     enabled: !encryptionBridge.isProcessing
-                    font.pixelSize: 12
+                    font.pixelSize: 13
                     font.family: "IBM Plex Sans"
                     background: Rectangle {
-                        color: cancelButton.hovered ? "#444444" : "#333333"
-                        radius: 4
+                        color: cancelButton.hovered ? "#3a3a4e" : "#2a2a3e"
+                        radius: 6
+                        border.color: "#444466"
+                        border.width: 1
                     }
                     contentItem: Text {
                         text: cancelButton.text
                         font: cancelButton.font
-                        color: cancelButton.enabled ? "#cccccc" : "#666666"
+                        color: "#cccccc"
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
@@ -236,19 +362,21 @@ Dialog {
 
                 Button {
                     id: exportButton
-                    text: qsTr("导出 (Export)")
-                    Layout.preferredWidth: 100
+                    text: qsTr("导出")
+                    Layout.preferredWidth: 120
+                    Layout.preferredHeight: 36
                     enabled: encryptCheckbox.checked && !encryptionBridge.isProcessing
-                    font.pixelSize: 12
+                    font.pixelSize: 13
+                    font.bold: true
                     font.family: "IBM Plex Sans"
                     background: Rectangle {
-                        color: exportButton.enabled ? (exportButton.hovered ? "#3DB5D9" : "#4FC3F7") : "#333333"
-                        radius: 4
+                        color: exportButton.enabled ? (exportButton.hovered ? "#3DB5D9" : "#4FC3F7") : "#2a2a3e"
+                        radius: 6
                     }
                     contentItem: Text {
                         text: exportButton.text
                         font: exportButton.font
-                        color: exportButton.enabled ? "#ffffff" : "#666666"
+                        color: exportButton.enabled ? "#ffffff" : "#555555"
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
