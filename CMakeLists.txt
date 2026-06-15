@@ -98,6 +98,7 @@ option(BUILD_VSR "Build VSR (Video Super-Resolution) module" OFF)
 # Subdirectories (core modules first, NCNN last to minimize pollution)
 # ============================================================================
 add_subdirectory(src/core)
+add_subdirectory(src/crypto)
 add_subdirectory(src/extractor)
 add_subdirectory(src/render)
 
