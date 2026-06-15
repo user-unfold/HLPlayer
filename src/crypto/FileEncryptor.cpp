@@ -280,7 +280,7 @@ EncryptResult FileEncryptor::encrypt(const EncryptConfig& config,
 #endif
 
     // 8. Encrypt data in chunks
-    constexpr size_t CHUNK_SIZE = 256 * 1024;  // 256KB chunks
+    constexpr size_t CHUNK_SIZE = 512 * 1024;  // 512KB chunks
     std::vector<uint8_t> plaintext(CHUNK_SIZE);
     std::vector<uint8_t> ciphertext(CHUNK_SIZE);
 
