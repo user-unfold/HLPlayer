@@ -1884,6 +1884,28 @@ onClicked: {
                         background: Rectangle { radius: 6; color: parent.hovered ? ThemeManager.surface : "transparent" }
                         contentItem: Text {
                             anchors.centerIn: parent
+                            text: "\uD83D\uDD12"
+                            font.pixelSize: 14
+                        }
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("加密导出当前视频 (Encrypt Export)")
+                        onClicked: {
+                            var path = player.source
+                            if (path && path.startsWith("file:///"))
+                                path = decodeURIComponent(path.substring(8).replace(/\\/g, "/"))
+                            encryptExportDialog.inputPath = path || ""
+                            encryptExportDialog.open()
+                        }
+                    }
+
+                    Button {
+                        Layout.preferredWidth: 32
+                        Layout.preferredHeight: 32
+                        flat: true
+                        visible: playlist.count > 0
+                        background: Rectangle { radius: 6; color: parent.hovered ? ThemeManager.surface : "transparent" }
+                        contentItem: Text {
+                            anchors.centerIn: parent
                             text: "\u2715"
                             font.pixelSize: 12
                             color: ThemeManager.errorColor
@@ -1961,9 +1983,29 @@ onClicked: {
                             id: mouseArea
                             anchors.fill: parent
                             hoverEnabled: true
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
                             onDoubleClicked: {
                                 playlist.currentIndex = index
                                 loadAndPlay(index)
+                            }
+                            onClicked: {
+                                if (mouse.button === Qt.RightButton) {
+                                    playlistItemMenu.filePath = model.url || ""
+                                    playlistItemMenu.popup()
+                                }
+                            }
+                        }
+
+                        Menu {
+                            id: playlistItemMenu
+                            property string filePath: ""
+                            MenuItem {
+                                text: qsTr("加密导出此文件 (Encrypt Export)")
+                                enabled: playlistItemMenu.filePath !== ""
+                                onTriggered: {
+                                    encryptExportDialog.inputPath = playlistItemMenu.filePath
+                                    encryptExportDialog.open()
+                                }
                             }
                         }
 
