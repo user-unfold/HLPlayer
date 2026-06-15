@@ -10,10 +10,11 @@ Dialog {
     height: 480
     modal: true
     focus: true
-    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    closePolicy: Popup.NoAutoClose
 
     property string inputPath: ""
     property string outputPath: ""
+    property bool usePasswordMode: true
 
     readonly property int space1: 8
     readonly property int space2: 16
@@ -106,23 +107,25 @@ Dialog {
                 }
             }
 
+            // Key mode cards
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: 10
                 visible: encryptCheckbox.checked
 
+                // Password mode card
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 48
                     radius: 8
-                    color: passwordRadio.checked ? "#1e3a5f" : "#252535"
-                    border.color: passwordRadio.checked ? "#4FC3F7" : "#333344"
-                    border.width: passwordRadio.checked ? 2 : 1
+                    color: usePasswordMode ? "#1e3a5f" : "#252535"
+                    border.color: usePasswordMode ? "#4FC3F7" : "#333344"
+                    border.width: usePasswordMode ? 2 : 1
 
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: passwordRadio.checked = true
+                        onClicked: root.usePasswordMode = true
                     }
 
                     RowLayout {
@@ -135,7 +138,7 @@ Dialog {
                             radius: 10
                             anchors.verticalCenter: parent.verticalCenter
                             color: "transparent"
-                            border.color: passwordRadio.checked ? "#4FC3F7" : "#666666"
+                            border.color: usePasswordMode ? "#4FC3F7" : "#666666"
                             border.width: 2
 
                             Rectangle {
@@ -143,7 +146,7 @@ Dialog {
                                 width: 10; height: 10
                                 radius: 5
                                 color: "#4FC3F7"
-                                visible: passwordRadio.checked
+                                visible: usePasswordMode
                             }
                         }
 
@@ -154,7 +157,7 @@ Dialog {
                                 font.pixelSize: 13
                                 font.bold: true
                                 font.family: "IBM Plex Sans"
-                                color: passwordRadio.checked ? "#ffffff" : "#aaaaaa"
+                                color: usePasswordMode ? "#ffffff" : "#aaaaaa"
                             }
                             Text {
                                 text: qsTr("输入密码加密，播放时需要输入相同密码")
@@ -165,19 +168,14 @@ Dialog {
                         }
                         Item { Layout.fillWidth: true }
                     }
-
-                    RadioButton {
-                        id: passwordRadio
-                        checked: true
-                        visible: false
-                    }
                 }
 
+                // Password input fields
                 ColumnLayout {
                     Layout.fillWidth: true
                     Layout.leftMargin: 4
                     spacing: 6
-                    visible: passwordRadio.checked
+                    visible: usePasswordMode
 
                     TextField {
                         id: passwordField
@@ -221,18 +219,19 @@ Dialog {
                     }
                 }
 
+                // Auto-key mode card
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 48
                     radius: 8
-                    color: autoKeyRadio.checked ? "#1e3a5f" : "#252535"
-                    border.color: autoKeyRadio.checked ? "#4FC3F7" : "#333344"
-                    border.width: autoKeyRadio.checked ? 2 : 1
+                    color: !usePasswordMode ? "#1e3a5f" : "#252535"
+                    border.color: !usePasswordMode ? "#4FC3F7" : "#333344"
+                    border.width: !usePasswordMode ? 2 : 1
 
                     MouseArea {
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: autoKeyRadio.checked = true
+                        onClicked: root.usePasswordMode = false
                     }
 
                     RowLayout {
@@ -245,7 +244,7 @@ Dialog {
                             radius: 10
                             anchors.verticalCenter: parent.verticalCenter
                             color: "transparent"
-                            border.color: autoKeyRadio.checked ? "#4FC3F7" : "#666666"
+                            border.color: !usePasswordMode ? "#4FC3F7" : "#666666"
                             border.width: 2
 
                             Rectangle {
@@ -253,7 +252,7 @@ Dialog {
                                 width: 10; height: 10
                                 radius: 5
                                 color: "#4FC3F7"
-                                visible: autoKeyRadio.checked
+                                visible: !usePasswordMode
                             }
                         }
 
@@ -264,7 +263,7 @@ Dialog {
                                 font.pixelSize: 13
                                 font.bold: true
                                 font.family: "IBM Plex Sans"
-                                color: autoKeyRadio.checked ? "#ffffff" : "#aaaaaa"
+                                color: !usePasswordMode ? "#ffffff" : "#aaaaaa"
                             }
                             Text {
                                 text: qsTr("系统生成密钥，加密后显示，请妥善保存")
@@ -275,12 +274,6 @@ Dialog {
                         }
                         Item { Layout.fillWidth: true }
                     }
-
-                    RadioButton {
-                        id: autoKeyRadio
-                        checked: false
-                        visible: false
-                    }
                 }
 
                 Text {
@@ -289,11 +282,12 @@ Dialog {
                     font.pixelSize: 10
                     font.family: "IBM Plex Sans"
                     color: "#FFB74D"
-                    visible: autoKeyRadio.checked
+                    visible: !usePasswordMode
                     wrapMode: Text.Wrap
                 }
             }
 
+            // Progress section
             ColumnLayout {
                 Layout.fillWidth: true
                 spacing: space1
@@ -325,6 +319,7 @@ Dialog {
 
             Item { Layout.fillHeight: true }
 
+            // Buttons
             RowLayout {
                 Layout.fillWidth: true
                 spacing: 12
@@ -383,7 +378,7 @@ Dialog {
                     onClicked: {
                         if (!encryptCheckbox.checked) return
 
-                        if (passwordRadio.checked) {
+                        if (usePasswordMode) {
                             var password = passwordField.text.trim()
                             var confirmPassword = confirmPasswordField.text.trim()
 
