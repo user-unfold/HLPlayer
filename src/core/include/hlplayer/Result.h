@@ -19,6 +19,8 @@ enum class PlayerError : int32_t {
     UnsupportedFormat,
     Timeout,
     NeedMoreData,
+    WrongPassword,
+    CorruptFile,
     Unknown = 999
 };
 

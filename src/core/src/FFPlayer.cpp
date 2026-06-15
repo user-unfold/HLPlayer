@@ -60,6 +60,7 @@ struct FFPlayer::Impl {
     std::unique_ptr<AudioTempoProcessor> tempoProcessor;
 
     AudioFrameCallback audioFrameCallback_;
+    std::function<std::string(const std::string&, int)> passwordCallback_;
 
     std::recursive_mutex apiMutex;
 
@@ -151,6 +152,10 @@ void FFPlayer::setAudioRenderer(std::unique_ptr<IAudioRenderer> renderer) {
 
 void FFPlayer::setVideoSink(IVideoFrameSink* sink) {
     impl_->videoSink = sink;
+}
+
+void FFPlayer::setPasswordCallback(std::function<std::string(const std::string&, int)> callback) {
+    impl_->passwordCallback_ = std::move(callback);
 }
 
 void FFPlayer::setAudioFrameCallback(AudioFrameCallback callback) {
@@ -265,6 +270,13 @@ Result<void> FFPlayer::open(const std::string& url) {
         Event e{EventType::Error, 0.0, ErrorPayload{err, msg}};
         impl_->eventBus.publish(e);
     };
+
+    if (!impl_->passwordCallback_) {
+        impl_->passwordCallback_ = [](const std::string&, int) -> std::string {
+            return "";
+        };
+    }
+    callbacks.onPasswordRequired = impl_->passwordCallback_;
 
     DemuxerConfig config;
     config.url = url;

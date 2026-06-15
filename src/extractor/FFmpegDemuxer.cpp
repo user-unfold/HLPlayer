@@ -2,6 +2,13 @@
 
 #include <spdlog/spdlog.h>
 
+#include "HlvHeader.h"
+#include "KeyManager.h"
+#include "DecryptingAVIOContext.h"
+#include "SessionKeyCache.h"
+#include "constant_time.h"
+#include "HmacSha256.h"
+
 extern "C" {
 #include <libavutil/log.h>
 #include <libavutil/opt.h>
@@ -59,14 +66,120 @@ Result<void> FFmpegDemuxer::open(const std::string& url,
     };
 
     AVDictionary* rawOptions = options.release();
-    int ret = avformat_open_input(&rawFormatCtx, url.c_str(), nullptr, &rawOptions);
+
+    // --- .hlv encrypted file detection ---
+    AVIOContext* decryptAvioCtx = nullptr;
+
+    if (hlplayer::crypto::hasHlvExtension(url) || hlplayer::crypto::isHlvFile(url)) {
+        // 1. Read 112-byte header
+        FILE* hlvFile = nullptr;
+        fopen_s(&hlvFile, url.c_str(), "rb");
+        if (!hlvFile) {
+            return Result<void>::error(PlayerError::InvalidURL);
+        }
+
+        uint8_t headerBuf[hlplayer::crypto::HLV_HEADER_SIZE];
+        size_t bytesRead = fread(headerBuf, 1, sizeof(headerBuf), hlvFile);
+        fclose(hlvFile);
+
+        if (bytesRead != hlplayer::crypto::HLV_HEADER_SIZE) {
+            return Result<void>::error(PlayerError::CorruptFile);
+        }
+
+        // 2. Validate magic
+        if (memcmp(headerBuf, hlplayer::crypto::HLV_MAGIC, 8) != 0) {
+            return Result<void>::error(PlayerError::CorruptFile);
+        }
+
+        // 3. Deserialize header
+        auto header = hlplayer::crypto::HlvHeader::deserialize(headerBuf, bytesRead);
+        if (!header.isValid()) {
+            return Result<void>::error(PlayerError::CorruptFile);
+        }
+
+        // 4. Try session cache first
+        uint8_t headerHmac[32];
+        memcpy(headerHmac, headerBuf + 0x50, 32);
+
+        static hlplayer::crypto::SessionKeyCache sessionCache;
+        auto cachedKey = sessionCache.tryFindKey(headerBuf, headerHmac);
+
+        hlplayer::crypto::SecureBytes aesKey;
+        hlplayer::crypto::SecureBytes hmacKey;
+
+        if (cachedKey) {
+            aesKey = std::move(*cachedKey);
+        } else {
+            // 5. Need password from UI
+            if (!callbacks_.onPasswordRequired) {
+                return Result<void>::error(PlayerError::WrongPassword);
+            }
+
+            std::string userInput = callbacks_.onPasswordRequired(url, static_cast<int>(header.keyMode));
+            if (userInput.empty()) {
+                return Result<void>::error(PlayerError::WrongPassword);
+            }
+
+            // 6. Derive keys based on key mode
+            if (header.keyMode == hlplayer::crypto::KeyMode::Password) {
+                auto derived = hlplayer::crypto::KeyManager::deriveFromPassword(
+                    userInput, header.salt, header.getClampedIterations());
+                aesKey = std::move(derived.aesKey);
+                hmacKey = std::move(derived.hmacKey);
+            } else {
+                // Raw key mode: parse key string
+                auto rawKeyResult = hlplayer::crypto::KeyManager::parseKeyString(userInput);
+                if (rawKeyResult.hasError()) {
+                    return Result<void>::error(PlayerError::WrongPassword);
+                }
+                auto derived = hlplayer::crypto::KeyManager::deriveFromRawKey(rawKeyResult.value());
+                aesKey = std::move(derived.aesKey);
+                hmacKey = std::move(derived.hmacKey);
+            }
+
+            // 7. Verify HMAC (constant-time compare)
+            uint8_t computedHmac[32];
+            hlplayer::crypto::HmacSha256::compute(
+                hmacKey.data(), 32, headerBuf, 80, computedHmac);
+
+            if (!hlplayer::crypto::constant_time_compare(computedHmac, headerHmac, 32)) {
+                return Result<void>::error(PlayerError::WrongPassword);
+            }
+
+            // 8. Store in session cache
+            sessionCache.put(url, aesKey, hmacKey);
+        }
+
+        // 9. Create DecryptingAVIOContext
+        hlplayer::crypto::DecryptConfig decryptConfig;
+        decryptConfig.filePath = url;
+        decryptConfig.aesKey = aesKey;
+        memcpy(decryptConfig.nonce, header.nonce, 12);
+        decryptConfig.originalSize = header.originalSize;
+
+        decryptAvioCtx = hlplayer::crypto::DecryptingAVIOContext::create(decryptConfig);
+        if (!decryptAvioCtx) {
+            return Result<void>::error(PlayerError::DecodeError);
+        }
+
+        // 10. Inject into AVFormatContext BEFORE avformat_open_input
+        rawFormatCtx->pb = decryptAvioCtx;
+    }
+
+    const char* openUrl = decryptAvioCtx ? "" : url.c_str();
+    int ret = avformat_open_input(&rawFormatCtx, openUrl, nullptr, &rawOptions);
     if (ret < 0) {
+        if (decryptAvioCtx) {
+            hlplayer::crypto::DecryptingAVIOContext::destroy(decryptAvioCtx);
+        }
         char errBuf[AV_ERROR_MAX_STRING_SIZE] = {0};
         av_strerror(ret, errBuf, sizeof(errBuf));
         spdlog::error("Failed to open input: {}", errBuf);
         return Result<void>::error(PlayerError::InvalidURL);
     }
 
+    // Store decryptAvioCtx for later cleanup
+    decryptAvioCtx_ = decryptAvioCtx;
     formatCtx_.reset(rawFormatCtx);
 
     ret = avformat_find_stream_info(formatCtx_.get(), nullptr);
@@ -201,7 +314,21 @@ Result<void> FFmpegDemuxer::stop() {
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
+
+        // Detach custom AVIOContext from format context before destroying it
+        // to prevent avformat_close_input from trying to close our custom pb
+        if (formatCtx_ && decryptAvioCtx_) {
+            formatCtx_->pb = nullptr;
+        }
+
         formatCtx_.reset();
+
+        // Now safe to destroy our custom AVIOContext
+        if (decryptAvioCtx_) {
+            hlplayer::crypto::DecryptingAVIOContext::destroy(decryptAvioCtx_);
+            decryptAvioCtx_ = nullptr;
+        }
+
         state_.store(PlayerState_Idle);
     }
 
@@ -319,8 +446,51 @@ void FFmpegDemuxer::demuxLoop() {
                     rawCtx->interrupt_callback.callback = [](void* opaque) -> int {
                         return static_cast<FFmpegDemuxer*>(opaque)->shouldStop_.load() ? 1 : 0;
                     };
-                    int openRet = avformat_open_input(&rawCtx, url.c_str(), nullptr, nullptr);
+
+                    // Re-create DecryptingAVIOContext for .hlv files
+                    AVIOContext* reopenDecryptCtx = nullptr;
+                    if (decryptAvioCtx_ && (hlplayer::crypto::hasHlvExtension(url) || hlplayer::crypto::isHlvFile(url))) {
+                        // Read header again to get HMAC for cache lookup
+                        FILE* hlvFile = nullptr;
+                        fopen_s(&hlvFile, url.c_str(), "rb");
+                        if (hlvFile) {
+                            uint8_t headerBuf[hlplayer::crypto::HLV_HEADER_SIZE];
+                            size_t bytesRead = fread(headerBuf, 1, sizeof(headerBuf), hlvFile);
+                            fclose(hlvFile);
+
+                            if (bytesRead == hlplayer::crypto::HLV_HEADER_SIZE) {
+                                uint8_t headerHmac[32];
+                                memcpy(headerHmac, headerBuf + 0x50, 32);
+
+                                static hlplayer::crypto::SessionKeyCache sessionCache;
+                                auto cachedKey = sessionCache.tryFindKey(headerBuf, headerHmac);
+
+                                if (cachedKey) {
+                                    auto header = hlplayer::crypto::HlvHeader::deserialize(headerBuf, bytesRead);
+                                    if (header.isValid()) {
+                                        hlplayer::crypto::DecryptConfig decryptConfig;
+                                        decryptConfig.filePath = url;
+                                        decryptConfig.aesKey = std::move(*cachedKey);
+                                        memcpy(decryptConfig.nonce, header.nonce, 12);
+                                        decryptConfig.originalSize = header.originalSize;
+
+                                        reopenDecryptCtx = hlplayer::crypto::DecryptingAVIOContext::create(decryptConfig);
+                                        if (reopenDecryptCtx) {
+                                            rawCtx->pb = reopenDecryptCtx;
+                                        }
+                                    }
+                                } else {
+                                    spdlog::error("Reopen-seek: key not found in cache for .hlv file");
+                                }
+                            }
+                        }
+                    }
+
+                    int openRet = avformat_open_input(&rawCtx, reopenDecryptCtx ? "" : url.c_str(), nullptr, nullptr);
                     if (openRet >= 0) {
+                        if (reopenDecryptCtx) {
+                            decryptAvioCtx_ = reopenDecryptCtx;
+                        }
                         // Don't call avformat_find_stream_info on reopen - it reads to EOF and breaks seeking.
                         // We already know the stream indices from the initial open.
                         if (rawCtx->pb) {
@@ -372,6 +542,9 @@ void FFmpegDemuxer::demuxLoop() {
                     } else {
                         spdlog::error("Reopen of {} failed (ret={})", url, openRet);
                         formatCtx_.reset();
+                        if (reopenDecryptCtx) {
+                            hlplayer::crypto::DecryptingAVIOContext::destroy(reopenDecryptCtx);
+                        }
                     }
                 }
 

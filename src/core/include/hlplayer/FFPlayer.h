@@ -34,6 +34,7 @@ public:
     void setAudioDecoder(std::unique_ptr<IAudioDecoder> decoder);
     void setAudioRenderer(std::unique_ptr<IAudioRenderer> renderer);
     void setVideoSink(IVideoFrameSink* sink);
+    void setPasswordCallback(std::function<std::string(const std::string&, int)> callback);
 
     /// Callback invoked for each decoded audio frame. Used to feed audio
     /// to external consumers (e.g., ASR pipeline) without a compile-time

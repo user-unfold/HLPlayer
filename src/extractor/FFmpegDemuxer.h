@@ -24,6 +24,10 @@
     #define HLPLAYER_EXTRACTOR_API
 #endif
 
+extern "C" {
+struct AVIOContext;
+}
+
 namespace hlplayer {
 namespace extractor {
 
@@ -118,6 +122,9 @@ private:
     // Used to decide whether seek requires a full close/reopen to reset
     // the MOV demuxer's internal sample-pointer state.
     std::atomic<bool> eofReached_{false};
+
+    // Custom AVIOContext for decrypting .hlv files (nullptr for non-encrypted files)
+    AVIOContext* decryptAvioCtx_ = nullptr;
 
     int videoStreamIndex_ = -1;
     int audioStreamIndex_ = -1;

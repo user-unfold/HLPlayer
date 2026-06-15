@@ -94,6 +94,7 @@ target_link_libraries(hlplayer_extractor
         nlohmann_json::nlohmann_json
     PRIVATE
         ${FFMPEG_LIBRARIES}
+        hlplayer_crypto
 )
 
 if(FFMPEG_FOUND)

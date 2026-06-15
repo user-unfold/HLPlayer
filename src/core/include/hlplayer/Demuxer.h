@@ -62,6 +62,11 @@ struct HLPLAYER_CORE_API DemuxerCallbacks {
 
     /// Called when the demuxer reaches end-of-stream (no more packets)
     std::function<void()> onEndOfStream;
+
+    /// Called when an encrypted .hlv file needs a password/key.
+    /// keyMode: 1=password, 2=raw_key (from HlvHeader)
+    /// Returns the user-entered password/key string (empty string = cancelled)
+    std::function<std::string(const std::string& filePath, int keyMode)> onPasswordRequired;
 };
 
 /// Pure virtual demuxer interface
