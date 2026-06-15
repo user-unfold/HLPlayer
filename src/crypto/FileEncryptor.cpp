@@ -376,6 +376,48 @@ EncryptResult FileEncryptor::encrypt(const EncryptConfig& config,
 
     std::fclose(inputFile);
 
+    // Self-consistency check: decrypt first bytes and compare with original
+    {
+        AesCtr256 verifyAes;
+        verifyAes.init(aesKey, nonce);
+        FILE* verifyInput = nullptr;
+#ifdef _WIN32
+        std::wstring wvPath = utf8ToWide(config.inputPath);
+        verifyInput = _wfopen(wvPath.c_str(), L"rb");
+#else
+        verifyInput = std::fopen(config.inputPath.c_str(), "rb");
+#endif
+        if (verifyInput) {
+            uint8_t original[64], encrypted[64], decrypted[64];
+            size_t origRead = std::fread(original, 1, 64, verifyInput);
+            std::fclose(verifyInput);
+            if (origRead >= 16) {
+                // Read corresponding encrypted bytes from the temp file
+                // Encrypted data starts at headerSize (HLV_HEADER_SIZE) in temp file
+#ifdef _WIN32
+                LARGE_INTEGER rdOff; rdOff.QuadPart = HLV_HEADER_SIZE;
+                SetFilePointerEx(hFile, rdOff, nullptr, FILE_BEGIN);
+                DWORD encRead = 0;
+                ReadFile(hFile, encrypted, static_cast<DWORD>(origRead), &encRead, nullptr);
+#else
+                fseeko(tmpFile, HLV_HEADER_SIZE, SEEK_SET);
+                size_t encRead = std::fread(encrypted, 1, origRead, tmpFile);
+#endif
+                verifyAes.process(encrypted, decrypted, origRead);
+                if (std::memcmp(original, decrypted, origRead) != 0) {
+                    fprintf(stderr, "CRYPTO SELF-TEST FAILED: round-trip mismatch at %zu bytes\n", origRead);
+                    // Show first differing byte
+                    for (size_t i = 0; i < origRead; ++i) {
+                        if (original[i] != decrypted[i]) {
+                            fprintf(stderr, "  byte[%zu]: expected 0x%02x, got 0x%02x\n", i, original[i], decrypted[i]);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // 9. Compute header HMAC
     // Serialize header with all fields set (headerHmac = zeros)
     auto serializedHeader = header.serialize();
