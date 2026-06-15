@@ -51,6 +51,16 @@ int readPacket(void* opaque, uint8_t* buf, int bufSize) {
         state->aesLogicalPos = state->logicalPos;
     }
 
+    // Log first read after position change (detect seek)
+    static uint64_t s_lastLoggedPos = UINT64_MAX;
+    if (state->logicalPos != s_lastLoggedPos && toRead > 0) {
+        fprintf(stderr, "readPacket: pos=%llu len=%d remaining=%llu aesSynced=%d\n",
+                (unsigned long long)state->logicalPos, toRead,
+                (unsigned long long)(state->originalSize - state->logicalPos),
+                (state->logicalPos == state->aesLogicalPos) ? 1 : 0);
+        s_lastLoggedPos = state->logicalPos;
+    }
+
     // Read encrypted data from physical file at headerSize + logicalPos
 #ifdef _WIN32
     _fseeki64(state->file, static_cast<__int64>(state->headerSize + state->logicalPos), SEEK_SET);
