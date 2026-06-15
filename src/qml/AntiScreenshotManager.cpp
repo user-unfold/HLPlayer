@@ -14,22 +14,22 @@ namespace qml {
 AntiScreenshotManager::AntiScreenshotManager(QObject* parent)
     : QObject(parent)
     , m_settings("HLPlayer", "HLPlayer") {
-    m_enabled = m_settings.value("antiScreenshotEnabled", false).toBool();
+    m_protectionEnabled = m_settings.value("antiScreenshotEnabled", false).toBool();
 }
 
 AntiScreenshotManager::~AntiScreenshotManager() {
     deactivate();
 }
 
-bool AntiScreenshotManager::enabled() const {
-    return m_enabled;
+bool AntiScreenshotManager::protectionEnabled() const {
+    return m_protectionEnabled;
 }
 
-void AntiScreenshotManager::setEnabled(bool enabled) {
-    if (m_enabled == enabled) return;
-    m_enabled = enabled;
+void AntiScreenshotManager::setProtectionEnabled(bool enabled) {
+    if (m_protectionEnabled == enabled) return;
+    m_protectionEnabled = enabled;
     m_settings.setValue("antiScreenshotEnabled", enabled);
-    emit enabledChanged();
+    emit protectionEnabledChanged();
 }
 
 void AntiScreenshotManager::activateForWindow(QObject* window) {

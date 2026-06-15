@@ -41,8 +41,8 @@ ApplicationWindow {
     // Anti-screenshot state
     property bool isPlayingHlv: false
 
-    onPlayingHlvChanged: {
-        if (isPlayingHlv && antiScreenshotManager.enabled) {
+    onIsPlayingHlvChanged: {
+        if (isPlayingHlv && antiScreenshotManager.protectionEnabled) {
             antiScreenshotManager.activateForWindow(root)
         } else {
             antiScreenshotManager.deactivate()
@@ -51,8 +51,8 @@ ApplicationWindow {
 
     Connections {
         target: antiScreenshotManager
-        function onEnabledChanged() {
-            if (isPlayingHlv && antiScreenshotManager.enabled) {
+        function onProtectionEnabledChanged() {
+            if (isPlayingHlv && antiScreenshotManager.protectionEnabled) {
                 antiScreenshotManager.activateForWindow(root)
             } else {
                 antiScreenshotManager.deactivate()
@@ -257,7 +257,7 @@ ApplicationWindow {
                 root.isPlayingHlv = hlvExtension
             } else {
                 root.isPlayingHlv = false
-                antiScreenshotManager.setActive(false)
+                antiScreenshotManager.deactivate()
             }
         }
         onErrorChanged: {
@@ -1764,7 +1764,7 @@ onClicked: {
                                                 height: 24
                                                 radius: 12
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                color: antiScreenshotManager.enabled ? "#4FC3F7" : "#666666"
+                                                color: antiScreenshotManager.protectionEnabled ? "#4FC3F7" : "#666666"
 
                                                 Behavior on color {
                                                     ColorAnimation { duration: 200 }
@@ -1776,7 +1776,7 @@ onClicked: {
                                                     radius: 9
                                                     color: "#ffffff"
                                                     anchors.verticalCenter: parent.verticalCenter
-                                                    x: antiScreenshotManager.enabled ? 23 : 3
+                                                    x: antiScreenshotManager.protectionEnabled ? 23 : 3
 
                                                     Behavior on x {
                                                         NumberAnimation { duration: 200; easing.type: Easing.InOutQuad }
@@ -1787,7 +1787,7 @@ onClicked: {
                                                     anchors.fill: parent
                                                     cursorShape: Qt.PointingHandCursor
                                                     onClicked: {
-                                                        antiScreenshotManager.enabled = !antiScreenshotManager.enabled
+                                                        antiScreenshotManager.protectionEnabled = !antiScreenshotManager.protectionEnabled
                                                     }
                                                 }
                                             }

@@ -27,24 +27,24 @@ class HLPLAYER_QML_API AntiScreenshotManager : public QObject {
     Q_OBJECT
     QML_ELEMENT
 
-    Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
+    Q_PROPERTY(bool protectionEnabled READ protectionEnabled WRITE setProtectionEnabled NOTIFY protectionEnabledChanged)
 
 public:
     explicit AntiScreenshotManager(QObject* parent = nullptr);
     ~AntiScreenshotManager() override;
 
-    Q_INVOKABLE bool enabled() const;
-    Q_INVOKABLE void setEnabled(bool enabled);
+    Q_INVOKABLE bool protectionEnabled() const;
+    Q_INVOKABLE void setProtectionEnabled(bool enabled);
 
     Q_INVOKABLE void activateForWindow(QObject* window);
     Q_INVOKABLE void deactivate();
 
 signals:
-    void enabledChanged();
+    void protectionEnabledChanged();
 
 private:
     void applyAntiScreenshot(bool enable, QObject* window);
-    bool m_enabled;
+    bool m_protectionEnabled;
     QSettings m_settings;
 };
 
