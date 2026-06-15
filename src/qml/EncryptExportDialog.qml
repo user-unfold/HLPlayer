@@ -595,6 +595,27 @@ Dialog {
                 font.bold: true
                 color: "#4CAF50"
             }
+
+            Button {
+                text: qsTr("关闭 (Close)")
+                Layout.alignment: Qt.AlignHCenter
+                Layout.preferredWidth: 120
+                visible: root.encryptionSuccess && root.generatedKey.length === 0
+                font.pixelSize: 12
+                background: Rectangle {
+                    color: pwCloseBtn.hovered ? "#444444" : "#333333"
+                    radius: 4
+                }
+                contentItem: Text {
+                    text: pwCloseBtn.text
+                    font: pwCloseBtn.font
+                    color: "#cccccc"
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+                onClicked: root.close()
+                id: pwCloseBtn
+            }
         }
     }
 
