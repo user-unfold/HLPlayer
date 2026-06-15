@@ -278,6 +278,15 @@ ApplicationWindow {
         id: antiScreenshotManager
     }
 
+    QMLEncryptionExporter {
+        id: encryptionExporter
+    }
+
+    EncryptExportDialog {
+        id: encryptExportDialog
+        anchors.centerIn: parent
+    }
+
     FileDialog {
         id: fileDialog
         title: PlayerI18nContext.tr("Open Media File")
@@ -421,6 +430,18 @@ ApplicationWindow {
                         }
                         MenuItem { text: root.isMuted ? "Unmute" : "Mute"; onTriggered: toggleMute() }
                         MenuItem { text: root.visibility === Window.FullScreen ? "Exit Fullscreen" : "Fullscreen"; onTriggered: toggleFullScreen() }
+                        MenuSeparator {}
+                        MenuItem {
+                            text: qsTr("加密导出 (Encrypt Export)")
+                            enabled: player.source !== ""
+                            onTriggered: {
+                                var path = player.source
+                                if (path && path.startsWith("file:///"))
+                                    path = decodeURIComponent(path.substring(8).replace(/\\/g, "/"))
+                                encryptExportDialog.inputPath = path || ""
+                                encryptExportDialog.open()
+                            }
+                        }
                         MenuSeparator {}
                         MenuItem {
                             text: {
@@ -1910,7 +1931,7 @@ onClicked: {
                             text: model.title
                             font.pixelSize: 13
                             font.family: "IBM Plex Sans"
-                            color: model.isPlaying ? ThemeManager.accentColor : ThemeManager.onSurface
+                            color: model.isPlaying ? ThemeManager.accentColor : "#FFFFFF"
                             elide: Text.ElideRight
                             verticalAlignment: Text.AlignVCenter
                         }
