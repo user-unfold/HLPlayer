@@ -147,6 +147,11 @@ void AesCtr256::processEcb(const uint8_t* input, uint8_t* output, size_t length)
             BCryptEncrypt(m_hKey, m_counterBlock, 16, nullptr, nullptr, 0, m_keystream, 16, &cbResult, 0);
             ++m_counter;
             m_keystreamPos = 0;
+            // Handle partial block skip from seek()
+            if (m_partialSkip > 0 && m_partialSkip < 16) {
+                m_keystreamPos = m_partialSkip;
+                m_partialSkip = 0;
+            }
         }
         size_t rem = 16 - m_keystreamPos, chunk = length - offset;
         if (rem < chunk) chunk = rem;
