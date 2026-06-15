@@ -10,9 +10,12 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <bcrypt.h>
-// MinGW's bcrypt.h may lack this constant
+// MinGW's bcrypt.h may lack these constants
 #ifndef BCRYPT_CHAINING_MODE_CTR
 #define BCRYPT_CHAINING_MODE_CTR L"ChainingModeCTR"
+#endif
+#ifndef BCRYPT_CHAINING_MODE_ECB
+#define BCRYPT_CHAINING_MODE_ECB L"ChainingModeECB"
 #endif
 #endif
 
@@ -56,10 +59,15 @@ private:
     uint8_t m_counterBlock[16];
     uint32_t m_counter;
     int m_partialSkip;        // bytes to skip in next process() due to seek
+    bool m_useCtrMode;        // true if BCrypt CTR mode available
+    uint8_t m_keystream[16];  // keystream buffer for ECB fallback
+    int m_keystreamPos;       // position in keystream buffer
     bool m_initialized;
 
     static void uint32ToBe(uint32_t val, uint8_t out[4]);
     void buildCounterBlock();
+    void processCtr(const uint8_t* input, uint8_t* output, size_t length);
+    void processEcb(const uint8_t* input, uint8_t* output, size_t length);
 };
 
 } // namespace hlplayer::crypto
