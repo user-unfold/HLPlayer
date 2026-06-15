@@ -3,6 +3,9 @@
 #include "KeyManager.h"
 #include "HlvHeader.h"
 
+#include <chrono>
+#include <spdlog/spdlog.h>
+
 namespace hlplayer::crypto {
 
 EncryptionExporter::EncryptionExporter(QObject* parent)
@@ -79,11 +82,38 @@ void EncryptionExporter::runEncryption(const std::string& inputPath,
 
     encryptor_ = std::make_unique<FileEncryptor>();
 
+    auto tStart = std::chrono::steady_clock::now();
     EncryptResult result = encryptor_->encrypt(config, [this](double progress) {
         emit progressChanged(progress);
     });
+    auto tEnd = std::chrono::steady_clock::now();
+    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(tEnd - tStart).count();
 
     if (result.success) {
+        // Get input file size for throughput calculation
+        FILE* f = nullptr;
+#ifdef _WIN32
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, config.inputPath.c_str(), -1, nullptr, 0);
+        if (wlen > 1) {
+            auto* wpath = new wchar_t[static_cast<size_t>(wlen)];
+            MultiByteToWideChar(CP_UTF8, 0, config.inputPath.c_str(), -1, wpath, wlen);
+            f = _wfopen(wpath, L"rb");
+            delete[] wpath;
+        }
+#else
+        f = std::fopen(config.inputPath.c_str(), "rb");
+#endif
+        double sizeMB = 0.0;
+        if (f) {
+            fseek(f, 0, SEEK_END);
+            sizeMB = static_cast<double>(ftell(f)) / (1024.0 * 1024.0);
+            fclose(f);
+        }
+        double throughputMBps = (elapsedMs > 0) ? (sizeMB / (elapsedMs / 1000.0)) : 0.0;
+
+        spdlog::info("Encryption complete: {:.1f} MB in {:.1f}s ({:.1f} MB/s)",
+                     sizeMB, elapsedMs / 1000.0, throughputMBps);
+
         QString keyStr;
         if (!usePassword && result.generatedKey.size() == 32) {
             keyStr = QString::fromStdString(
