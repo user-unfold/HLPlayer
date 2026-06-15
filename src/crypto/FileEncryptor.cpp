@@ -3,6 +3,7 @@
 #include "HmacSha256.h"
 #include "KeyManager.h"
 #include "constant_time.h"
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -291,6 +292,11 @@ EncryptResult FileEncryptor::encrypt(const EncryptConfig& config,
     }
 
     int64_t bytesProcessed = 0;
+    double lastReportedProgress = 0.0;
+    auto lastReportTime = std::chrono::steady_clock::now();
+    constexpr double kMinProgressDelta = 0.01;   // 1% minimum change
+    constexpr auto kMinReportInterval = std::chrono::milliseconds(50);
+
     while (bytesProcessed < fileSize) {
         // Check for cancellation
         if (shouldCancel_.load(std::memory_order_acquire)) {
@@ -353,10 +359,18 @@ EncryptResult FileEncryptor::encrypt(const EncryptConfig& config,
 
         bytesProcessed += bytesRead;
 
-        // Report progress
+        // Report progress (throttled: max ~100 updates, min 50ms apart)
         if (onProgress) {
             double progress = static_cast<double>(bytesProcessed) / static_cast<double>(fileSize);
-            onProgress(progress);
+            bool isLastChunk = (bytesProcessed >= fileSize);
+            auto now = std::chrono::steady_clock::now();
+            if (isLastChunk ||
+                (progress - lastReportedProgress) >= kMinProgressDelta ||
+                (now - lastReportTime) >= kMinReportInterval) {
+                onProgress(progress);
+                lastReportedProgress = progress;
+                lastReportTime = now;
+            }
         }
     }
 
