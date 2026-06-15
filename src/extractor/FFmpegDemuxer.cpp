@@ -466,7 +466,17 @@ void FFmpegDemuxer::demuxLoop() {
                     if (decryptAvioCtx_ && (hlplayer::crypto::hasHlvExtension(url) || hlplayer::crypto::isHlvFile(url))) {
                         // Read header again to get HMAC for cache lookup
                         FILE* hlvFile = nullptr;
-                        fopen_s(&hlvFile, url.c_str(), "rb");
+#ifdef _WIN32
+                        int wlen2 = MultiByteToWideChar(CP_UTF8, 0, url.c_str(), -1, nullptr, 0);
+                        if (wlen2 > 1) {
+                            auto* wurl = new wchar_t[static_cast<size_t>(wlen2)];
+                            MultiByteToWideChar(CP_UTF8, 0, url.c_str(), -1, wurl, wlen2);
+                            hlvFile = _wfopen(wurl, L"rb");
+                            delete[] wurl;
+                        }
+#else
+                        hlvFile = std::fopen(url.c_str(), "rb");
+#endif
                         if (hlvFile) {
                             uint8_t headerBuf[hlplayer::crypto::HLV_HEADER_SIZE];
                             size_t bytesRead = fread(headerBuf, 1, sizeof(headerBuf), hlvFile);
