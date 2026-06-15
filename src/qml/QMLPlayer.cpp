@@ -11,6 +11,9 @@
 #include <QtGlobal>
 #include <QUrl>
 #include <QDateTime>
+#include <QEventLoop>
+#include <QPromise>
+#include <QFuture>
 
 #include <spdlog/spdlog.h>
 
@@ -40,6 +43,9 @@ struct QMLPlayer::Impl {
     QTimer* positionTimer = nullptr;
     QTimer* eventDispatchTimer = nullptr;
     QMLPlayer* owner = nullptr;
+    std::string pendingPasswordInput;
+    bool passwordPromptWaiting = false;
+    std::promise<std::string> passwordPromise;
 };
 
 QMLPlayer::QMLPlayer(QObject* parent)
@@ -76,7 +82,6 @@ QMLPlayer::QMLPlayer(QObject* parent)
             impl_->fpsValue = liveFps;
             emit fpsChanged();
         }
-        // Always emit positionChanged so the UI stays in sync with backend
         emit positionChanged();
     });
 
@@ -88,6 +93,11 @@ QMLPlayer::QMLPlayer(QObject* parent)
     impl_->eventDispatchTimer->start();
 
     setupEventBusSubscription();
+
+    ffPlayer->setPasswordCallback([this](const std::string& filePath, int keyMode) {
+        return handlePasswordRequired(filePath, keyMode);
+    });
+
     spdlog::info("HLPlayer::QMLPlayer constructed");
 }
 
@@ -390,6 +400,63 @@ void QMLPlayer::setPlaybackRate(double rate) {
     impl_->playbackRateValue = rate;
     impl_->mediaPlayer->player()->setPlaybackRate(rate);
     emit playbackRateChanged();
+}
+
+QString QMLPlayer::promptForPassword(const QString& filePath, int keyMode) {
+    QString result;
+    impl_->pendingPasswordInput.clear();
+
+    if (impl_->passwordPromptWaiting) {
+        return QString();
+    }
+
+    impl_->passwordPromptWaiting = true;
+    impl_->passwordPromise = std::promise<std::string>();
+
+    emit passwordPromptRequested(filePath, keyMode);
+
+    QEventLoop loop;
+    QTimer::singleShot(300000, &loop, &QEventLoop::quit);
+
+    auto future = impl_->passwordPromise.get_future();
+    while (future.wait_for(std::chrono::milliseconds(10)) != std::future_status::ready) {
+        loop.processEvents();
+    }
+
+    if (future.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+        result = QString::fromStdString(future.get());
+    }
+
+    impl_->passwordPromptWaiting = false;
+    return result;
+}
+
+std::string QMLPlayer::handlePasswordRequired(const std::string& filePath, int keyMode) {
+    if (QThread::currentThread() == this->thread()) {
+        QString qFilePath = QString::fromStdString(filePath);
+        QString result = promptForPassword(qFilePath, keyMode);
+        return result.toStdString();
+    } else {
+        QString result;
+        QMetaObject::invokeMethod(
+            this,
+            [this, filePath, keyMode, &result]() {
+                result = promptForPassword(QString::fromStdString(filePath), keyMode);
+            },
+            Qt::BlockingQueuedConnection
+        );
+        return result.toStdString();
+    }
+}
+
+void QMLPlayer::setPasswordInput(const QString& input) {
+    if (impl_->passwordPromptWaiting) {
+        impl_->pendingPasswordInput = input.toStdString();
+        try {
+            impl_->passwordPromise.set_value(impl_->pendingPasswordInput);
+        } catch (const std::future_error&) {
+        }
+    }
 }
 
 } // namespace qml

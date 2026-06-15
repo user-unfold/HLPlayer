@@ -82,6 +82,8 @@ public:
     Q_INVOKABLE void seek(double seconds);
     Q_INVOKABLE quintptr eventBusPointer() const;
     Q_INVOKABLE void setAudioFrameCallback(const QVariant& pipelinePtr);
+    Q_INVOKABLE QString promptForPassword(const QString& filePath, int keyMode);
+    Q_INVOKABLE void setPasswordInput(const QString& input);
 
 signals:
     void sourceChanged();
@@ -95,11 +97,13 @@ signals:
     void videoResolutionChanged();
     void fpsChanged();
     void playbackRateChanged();
+    void passwordPromptRequested(const QString& filePath, int keyMode);
 
 private:
     void setupEventBusSubscription();
     void handleStateChangedEvent(int oldState, int newState);
     void handleErrorEvent(int errorCode, const QString& errorMessage);
+    std::string handlePasswordRequired(const std::string& filePath, int keyMode);
 
     struct Impl;
     std::unique_ptr<Impl> impl_;

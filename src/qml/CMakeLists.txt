@@ -96,6 +96,7 @@ target_include_directories(hlplayer_qml
         ${CMAKE_CURRENT_SOURCE_DIR}/../camera/include/hlplayer
         ${CMAKE_SOURCE_DIR}/src/vsr/include
         ${CMAKE_SOURCE_DIR}/src/asr/include
+        ${CMAKE_SOURCE_DIR}/src/crypto
 )
 
 # Optional FFmpeg headers
@@ -118,6 +119,7 @@ target_link_libraries(hlplayer_qml
         hlplayer_core
         hlplayer_render
         hlplayer_extractor
+        hlplayer_crypto
     PRIVATE
         spdlog::spdlog
         nlohmann_json::nlohmann_json
@@ -142,6 +144,9 @@ if(BUILD_VSR)
     target_link_libraries(hlplayer_qml PRIVATE hlplayer_vsr)
     target_compile_definitions(hlplayer_qml PRIVATE HLPLAYER_VSR_ENABLED)
 endif()
+
+# Link crypto module for encryption export
+target_link_libraries(hlplayer_qml PRIVATE hlplayer_crypto)
 
 # Platform-specific settings
 if(WIN32)

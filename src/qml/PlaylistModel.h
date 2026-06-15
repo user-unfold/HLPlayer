@@ -21,7 +21,8 @@ public:
         TitleRole = Qt::UserRole + 1,
         UrlRole,
         DurationRole,
-        IsPlayingRole
+        IsPlayingRole,
+        IsEncryptedRole
     };
 
     explicit PlaylistModel(QObject* parent = nullptr);

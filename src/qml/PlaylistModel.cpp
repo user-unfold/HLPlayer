@@ -2,6 +2,8 @@
 
 #include <QFileInfo>
 
+#include "HlvHeader.h"
+
 namespace hlplayer {
 namespace qml {
 
@@ -23,6 +25,8 @@ QVariant PlaylistModel::data(const QModelIndex& index, int role) const {
         case UrlRole: return entry.url;
         case DurationRole: return entry.duration;
         case IsPlayingRole: return index.row() == currentIndex_;
+        case IsEncryptedRole:
+            return hlplayer::crypto::hasHlvExtension(entry.url.toStdString());
         default: return {};
     }
 }
@@ -32,7 +36,8 @@ QHash<int, QByteArray> PlaylistModel::roleNames() const {
         {TitleRole, "title"},
         {UrlRole, "url"},
         {DurationRole, "duration"},
-        {IsPlayingRole, "isPlaying"}
+        {IsPlayingRole, "isPlaying"},
+        {IsEncryptedRole, "isEncrypted"}
     };
 }
 

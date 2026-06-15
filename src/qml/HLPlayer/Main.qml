@@ -38,6 +38,28 @@ ApplicationWindow {
     property string srtExportFilename: ""
     property bool srtExportErrorVisible: false
 
+    // Anti-screenshot state
+    property bool isPlayingHlv: false
+
+    onPlayingHlvChanged: {
+        if (isPlayingHlv && antiScreenshotManager.enabled) {
+            antiScreenshotManager.activateForWindow(root)
+        } else {
+            antiScreenshotManager.deactivate()
+        }
+    }
+
+    Connections {
+        target: antiScreenshotManager
+        function onEnabledChanged() {
+            if (isPlayingHlv && antiScreenshotManager.enabled) {
+                antiScreenshotManager.activateForWindow(root)
+            } else {
+                antiScreenshotManager.deactivate()
+            }
+        }
+    }
+
     onPlaybackSpeedChanged: {
         showOsd("Speed: " + playbackSpeed.toFixed(2) + "x");
     }
@@ -231,6 +253,11 @@ ApplicationWindow {
                 if (path.startsWith("file:///"))
                     path = decodeURIComponent(path.substring(8).replace(/\\/g, "/"))
                 root.currentTitle = path.split("/").pop()
+                var hlvExtension = path.toLowerCase().endsWith(".hlv")
+                root.isPlayingHlv = hlvExtension
+            } else {
+                root.isPlayingHlv = false
+                antiScreenshotManager.setActive(false)
             }
         }
         onErrorChanged: {
@@ -245,6 +272,10 @@ ApplicationWindow {
             asrBridge.setModelDirectory("D:/HLPlayer/models")
             console.log("ASR Bridge initialized, enabled:", enabled)
         }
+    }
+
+    AntiScreenshotManager {
+        id: antiScreenshotManager
     }
 
     FileDialog {
@@ -1692,6 +1723,76 @@ onClicked: {
                                             }
                                         }
                                     }
+
+                                    // Anti-screenshot Toggle Card
+                                    Rectangle {
+                                        width: parent.width
+                                        height: 56
+                                        radius: 4
+                                        color: "transparent"
+
+                                        Row {
+                                            anchors.fill: parent
+                                            anchors.leftMargin: 0
+                                            anchors.rightMargin: 0
+                                            spacing: 8
+
+                                            Column {
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                spacing: 2
+
+                                                Text {
+                                                    text: "播放加密视频时阻止截屏"
+                                                    font.pixelSize: 12
+                                                    font.bold: true
+                                                    font.family: "IBM Plex Sans"
+                                                    color: "#ffffff"
+                                                }
+
+                                                Text {
+                                                    text: "Block screenshots during encrypted playback"
+                                                    font.pixelSize: 10
+                                                    font.family: "IBM Plex Sans"
+                                                    color: "#999999"
+                                                }
+                                            }
+
+                                            Item { width: 1; height: 1 }
+
+                                            Rectangle {
+                                                width: 44
+                                                height: 24
+                                                radius: 12
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                color: antiScreenshotManager.enabled ? "#4FC3F7" : "#666666"
+
+                                                Behavior on color {
+                                                    ColorAnimation { duration: 200 }
+                                                }
+
+                                                Rectangle {
+                                                    width: 18
+                                                    height: 18
+                                                    radius: 9
+                                                    color: "#ffffff"
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    x: antiScreenshotManager.enabled ? 23 : 3
+
+                                                    Behavior on x {
+                                                        NumberAnimation { duration: 200; easing.type: Easing.InOutQuad }
+                                                    }
+                                                }
+
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        antiScreenshotManager.enabled = !antiScreenshotManager.enabled
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                     }
@@ -1803,7 +1904,7 @@ onClicked: {
 
                         Text {
                             anchors.fill: parent
-                            anchors.leftMargin: 16
+                            anchors.leftMargin: model.isEncrypted ? 40 : 16
                             anchors.rightMargin: 8
                             anchors.topMargin: 4
                             text: model.title
@@ -1812,6 +1913,16 @@ onClicked: {
                             color: model.isPlaying ? ThemeManager.accentColor : ThemeManager.onSurface
                             elide: Text.ElideRight
                             verticalAlignment: Text.AlignVCenter
+                        }
+
+                        Text {
+                            visible: model.isEncrypted
+                            anchors.left: parent.left
+                            anchors.leftMargin: 12
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: "\uD83D\uDD12"
+                            font.pixelSize: 14
+                            color: ThemeManager.accentColor
                         }
 
                         Text {
