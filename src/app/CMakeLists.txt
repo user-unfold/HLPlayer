@@ -42,6 +42,7 @@ endif()
 # unnecessary file touches.
 set(_HLPLAYER_DLLS
     $<TARGET_FILE:hlplayer_core>
+    $<TARGET_FILE:hlplayer_crypto>
     $<TARGET_FILE:hlplayer_extractor>
     $<TARGET_FILE:hlplayer_render>
     $<TARGET_FILE:hlplayer_qml>
