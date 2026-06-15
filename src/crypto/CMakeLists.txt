@@ -98,6 +98,7 @@ if(WIN32)
         NOMINMAX
         WIN32_LEAN_AND_MEAN
     )
+    target_link_libraries(hlplayer_crypto PRIVATE bcrypt)
 elseif(APPLE)
     target_compile_definitions(hlplayer_crypto PRIVATE
         __APPLE__
