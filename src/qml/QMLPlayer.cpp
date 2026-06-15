@@ -65,6 +65,11 @@ QMLPlayer::QMLPlayer(QObject* parent)
     ffPlayer->setAudioRenderer(std::move(audioRenderer));
     ffPlayer->setVideoSink(impl_->videoSink.get());
 
+    // Set password callback BEFORE moving ffPlayer into MediaPlayer
+    ffPlayer->setPasswordCallback([this](const std::string& filePath, int keyMode) {
+        return handlePasswordRequired(filePath, keyMode);
+    });
+
     impl_->mediaPlayer = std::make_unique<MediaPlayer>(std::move(ffPlayer));
 
     impl_->owner = this;
@@ -93,10 +98,6 @@ QMLPlayer::QMLPlayer(QObject* parent)
     impl_->eventDispatchTimer->start();
 
     setupEventBusSubscription();
-
-    ffPlayer->setPasswordCallback([this](const std::string& filePath, int keyMode) {
-        return handlePasswordRequired(filePath, keyMode);
-    });
 
     spdlog::info("HLPlayer::QMLPlayer constructed");
 }
