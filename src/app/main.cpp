@@ -11,6 +11,7 @@
 #include <cstdio>
 
 #include <hlplayer/HLPlayer.h>
+#include <TmpCleaner.h>
 
 #ifdef BUILD_QML
 #include <hlplayer/PreviewRenderer.h>
@@ -29,6 +30,9 @@ int main(int argc, char *argv[])
 #endif
 
     hlplayer::sdk::init();
+
+    // Clean up leftover .hlv.tmp files from previous runs
+    hlplayer::app::TmpCleaner::cleanupTmpFiles();
 
     QQuickWindow::setGraphicsApi(QSGRendererInterface::Direct3D11);
 
