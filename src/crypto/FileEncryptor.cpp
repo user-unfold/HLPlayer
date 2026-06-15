@@ -21,6 +21,17 @@ extern "C" {
 
 namespace hlplayer::crypto {
 
+#ifdef _WIN32
+static std::wstring utf8ToWide(const std::string& str) {
+    if (str.empty()) return std::wstring();
+    int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
+    if (len <= 1) return std::wstring();
+    std::wstring result(static_cast<size_t>(len - 1), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &result[0], len);
+    return result;
+}
+#endif
+
 FileEncryptor::FileEncryptor() = default;
 
 FileEncryptor::~FileEncryptor() = default;
@@ -36,7 +47,7 @@ bool FileEncryptor::checkDiskSpace(const std::string& path, uint64_t requiredByt
     ULARGE_INTEGER totalFreeBytes;
 
     // Get the disk root from the path
-    std::wstring wpath(path.begin(), path.end());
+    std::wstring wpath = utf8ToWide(path);
     if (wpath.length() < 3 || wpath[1] != L':') {
         // Not a full path, assume current drive
         wchar_t cwd[MAX_PATH];
@@ -85,7 +96,8 @@ EncryptResult FileEncryptor::encrypt(const EncryptConfig& config,
     // Check if input file exists and is readable
     FILE* inputFile = nullptr;
 #ifdef _WIN32
-    fopen_s(&inputFile, config.inputPath.c_str(), "rb");
+    std::wstring wInputPath = utf8ToWide(config.inputPath);
+    inputFile = _wfopen(wInputPath.c_str(), L"rb");
 #else
     inputFile = std::fopen(config.inputPath.c_str(), "rb");
 #endif
@@ -117,7 +129,8 @@ EncryptResult FileEncryptor::encrypt(const EncryptConfig& config,
     // Check if output file already exists
     FILE* outputFile = nullptr;
 #ifdef _WIN32
-    fopen_s(&outputFile, config.outputPath.c_str(), "rb");
+    std::wstring wOutputCheckPath = utf8ToWide(config.outputPath);
+    outputFile = _wfopen(wOutputCheckPath.c_str(), L"rb");
 #else
     outputFile = std::fopen(config.outputPath.c_str(), "rb");
 #endif
@@ -192,7 +205,7 @@ EncryptResult FileEncryptor::encrypt(const EncryptConfig& config,
     std::string tmpPath = config.outputPath + ".tmp";
 
 #ifdef _WIN32
-    std::wstring wtmpPath(tmpPath.begin(), tmpPath.end());
+    std::wstring wtmpPath = utf8ToWide(tmpPath);
     HANDLE hFile = CreateFileW(
         wtmpPath.c_str(),
         GENERIC_WRITE,
@@ -403,7 +416,7 @@ EncryptResult FileEncryptor::encrypt(const EncryptConfig& config,
 
     // 11. Atomic rename .tmp to .hlv
 #ifdef _WIN32
-    std::wstring woutputPath(config.outputPath.begin(), config.outputPath.end());
+    std::wstring woutputPath = utf8ToWide(config.outputPath);
     if (!MoveFileExW(wtmpPath.c_str(), woutputPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED)) {
         DeleteFileW(wtmpPath.c_str());
         result.error = EncryptError::IoError;

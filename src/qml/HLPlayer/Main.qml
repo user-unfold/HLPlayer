@@ -265,6 +265,113 @@ ApplicationWindow {
         }
     }
 
+    // Password prompt for .hlv decrypted playback (inline Dialog avoids FluentUI import issue)
+    Dialog {
+        id: passwordPromptDialog
+        width: 440
+        height: 200
+        modal: true
+        closePolicy: Popup.CloseOnEscape
+        title: "HLV 加密文件 / Encrypted File"
+
+        property int keyMode: 1  // 1=password, 2=raw key
+        property bool showError: false
+
+        function openWithMode(mode) {
+            console.log("DEBUG openWithMode:", mode)
+            keyMode = mode
+            showError = false
+            inputField.text = ""
+            inputField.echoMode = (mode === 1) ? TextInput.Password : TextInput.Normal
+            inputField.placeholderText = (mode === 1) ? "请输入密码 / Enter password"
+                : "请输入密钥 / Enter key"
+            inputField.forceActiveFocus()
+            console.log("DEBUG calling open(), visible before:", visible)
+            open()
+            console.log("DEBUG open() done, visible:", visible)
+        }
+
+        background: Rectangle {
+            color: "#cc1a1a2e"
+            radius: 10
+            border.color: "#333366"
+        }
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 16
+            spacing: 10
+
+            Text {
+                text: parent.parent.keyMode === 1 ? "输入密码 / Enter Password" : "输入密钥 / Enter Key"
+                color: "#cccccc"
+                font.pixelSize: 14
+                font.bold: true
+            }
+
+            TextField {
+                id: inputField
+                Layout.fillWidth: true
+                Layout.preferredHeight: 36
+                color: "#ffffff"
+                selectByMouse: true
+
+                background: Rectangle {
+                    color: "#1a1a2e"
+                    radius: 4
+                    border.color: inputField.activeFocus ? "#4FC3F7" : "#444455"
+                    border.width: 1
+                }
+
+                Keys.onReturnPressed: confirmBtn.clicked()
+                Keys.onEnterPressed: confirmBtn.clicked()
+            }
+
+            Text {
+                text: "密码/密钥错误 / Wrong password or key"
+                color: "#FF4500"
+                font.pixelSize: 11
+                visible: parent.parent.showError
+            }
+
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: 8
+
+                Button {
+                    text: "取消 / Cancel"
+                    onClicked: {
+                        player.setPasswordInput("")
+                        passwordPromptDialog.close()
+                    }
+                }
+
+                Button {
+                    id: confirmBtn
+                    text: "确定 / OK"
+                    enabled: inputField.text.length > 0
+                    onClicked: {
+                        player.setPasswordInput(inputField.text)
+                        passwordPromptDialog.close()
+                    }
+                }
+            }
+        }
+
+        onOpened: {
+            inputField.forceActiveFocus()
+        }
+    }
+
+    Connections {
+        target: player
+        function onPasswordPromptRequested(filePath, keyMode) {
+            console.log("DEBUG passwordPromptRequested:", filePath, "keyMode:", keyMode)
+            passwordPromptDialog.openWithMode(keyMode)
+            console.log("DEBUG passwordPromptDialog visible:", passwordPromptDialog.visible, "opened:", passwordPromptDialog.opened)
+        }
+    }
+
     QMLASRBridge {
         id: asrBridge
         Component.onCompleted: {
@@ -1891,8 +1998,15 @@ onClicked: {
                         ToolTip.text: qsTr("加密导出当前视频 (Encrypt Export)")
                         onClicked: {
                             var path = player.source
-                            if (path && path.startsWith("file:///"))
-                                path = decodeURIComponent(path.substring(8).replace(/\\/g, "/"))
+                            console.log("DEBUG source raw:", JSON.stringify(path))
+                            if (path) {
+                                path = path.toString()
+                                if (path.startsWith("file:///"))
+                                    path = decodeURIComponent(path.substring(8))
+                                else if (path.startsWith("file://"))
+                                    path = decodeURIComponent(path.substring(7))
+                            }
+                            console.log("DEBUG inputPath:", JSON.stringify(path))
                             encryptExportDialog.inputPath = path || ""
                             encryptExportDialog.open()
                         }

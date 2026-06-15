@@ -47,6 +47,7 @@ public:
                                       bool usePassword,
                                       const QString& password);
     Q_INVOKABLE void cancel();
+    Q_INVOKABLE void copyToClipboard(const QString& text);
 
 signals:
     void stateChanged();

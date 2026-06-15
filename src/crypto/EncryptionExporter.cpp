@@ -24,9 +24,9 @@ void EncryptionExporter::startEncryption(const QString& inputPath,
                                           const QString& outputPath,
                                           bool usePassword,
                                           const QString& password) {
+    // Join previous worker thread if it finished (should be done since signal was emitted)
     if (workerThread_.joinable()) {
-        emit encryptionFailed("Encryption already in progress");
-        return;
+        workerThread_.join();
     }
 
     shouldCancel_.store(false);

@@ -3,6 +3,21 @@
 #include <algorithm>
 #include <cctype>
 
+#ifdef _WIN32
+#include <windows.h>
+
+namespace {
+std::wstring utf8ToWide(const std::string& str) {
+    if (str.empty()) return {};
+    int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
+    if (len <= 1) return {};
+    std::wstring result(static_cast<size_t>(len - 1), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, &result[0], len);
+    return result;
+}
+}
+#endif
+
 namespace hlplayer::crypto {
 
 std::vector<uint8_t> HlvHeader::serialize() const {
@@ -159,7 +174,8 @@ bool HlvHeader::isValid() const {
 bool isHlvFile(const std::string& filePath) {
     FILE* f = nullptr;
 #ifdef _WIN32
-    fopen_s(&f, filePath.c_str(), "rb");
+    std::wstring wPath = utf8ToWide(filePath);
+    f = _wfopen(wPath.c_str(), L"rb");
 #else
     f = fopen(filePath.c_str(), "rb");
 #endif

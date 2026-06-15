@@ -6,8 +6,8 @@ import HLPlayer
 
 Dialog {
     id: root
-    width: 480
-    height: 520
+    width: 560
+    height: 540
     modal: true
     focus: true
     closePolicy: Popup.NoAutoClose
@@ -15,8 +15,29 @@ Dialog {
     property string inputPath: ""
     property string outputPath: ""
     property bool usePasswordMode: true
+    property bool encryptionSuccess: false
+    property string generatedKey: ""
 
     readonly property int space1: 8
+
+    Timer {
+        id: copyFadeTimer
+        interval: 2000
+        onTriggered: copyToast.opacity = 0
+    }
+
+    function maskKey(key) {
+        // Show first two groups and last group, mask middle: ABCD-EFGH-****-****-****-****-****-****-****-WXYZ
+        if (key.length < 16) return key
+        var parts = key.split("-")
+        if (parts.length < 3) return key
+        var firstTwo = parts.slice(0, 2).join("-")
+        var lastOne = parts[parts.length - 1]
+        var maskedCount = parts.length - 3
+        var mask = []
+        for (var i = 0; i < maskedCount; i++) mask.push("****")
+        return firstTwo + "-" + mask.join("-") + "-" + lastOne
+    }
 
     function deriveOutputPath(input) {
         if (!input) return ""
@@ -359,6 +380,7 @@ Dialog {
 
             // Error message
             Text {
+                id: errorText
                 Layout.fillWidth: true
                 property string errMsg: ""
                 text: errMsg
@@ -371,9 +393,114 @@ Dialog {
 
             Item { Layout.fillHeight: true }
 
-            // Buttons
-            RowLayout {
+            // Key display (shown after encryption success in raw key mode)
+            ColumnLayout {
+                id: keyDisplayArea
                 Layout.fillWidth: true
+                visible: root.encryptionSuccess && root.generatedKey.length > 0
+                spacing: 10
+
+                Text {
+                    text: qsTr("密钥已生成 (Key Generated)")
+                    font.pixelSize: 14
+                    font.bold: true
+                    color: "#4FC3F7"
+                }
+
+                Text {
+                    text: qsTr("请妥善保存此密钥，丢失将无法解密文件\nPlease save this key securely, you cannot decrypt files without it")
+                    font.pixelSize: 11
+                    color: "#FFB74D"
+                    Layout.fillWidth: true
+                    wrapMode: Text.Wrap
+                }
+
+                // Masked key display
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 56
+                    color: "#333333"
+                    radius: 4
+                    border.color: "#444444"
+                    border.width: 1
+
+                    Text {
+                        anchors.fill: parent
+                        anchors.margins: 10
+                        text: maskKey(root.generatedKey)
+                        font.pixelSize: 12
+                        font.family: "monospace"
+                        color: "#ffffff"
+                        verticalAlignment: Text.AlignVCenter
+                        wrapMode: Text.WrapAnywhere
+                    }
+                }
+
+                // Copy feedback toast
+                Text {
+                    id: copyToast
+                    Layout.fillWidth: true
+                    text: qsTr("已复制到剪贴板 / Copied!")
+                    font.pixelSize: 12
+                    color: "#4CAF50"
+                    horizontalAlignment: Text.AlignHCenter
+                    opacity: 0
+                    Behavior on opacity { NumberAnimation { duration: 300 } }
+                }
+
+                RowLayout {
+                    Layout.alignment: Qt.AlignHCenter
+                    spacing: 12
+
+                    Button {
+                        text: qsTr("复制完整密钥 (Copy Full Key)")
+                        Layout.preferredWidth: 180
+                        font.pixelSize: 12
+                        background: Rectangle {
+                            color: copyFullBtn.hovered ? "#3DB5D9" : "#4FC3F7"
+                            radius: 4
+                        }
+                        contentItem: Text {
+                            text: copyFullBtn.text
+                            font: copyFullBtn.font
+                            color: "#ffffff"
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        onClicked: {
+                            encryptionBridge.copyToClipboard(root.generatedKey)
+                            copyToast.opacity = 1
+                            copyFadeTimer.start()
+                        }
+                        id: copyFullBtn
+                    }
+
+                    Button {
+                        text: qsTr("关闭 (Close)")
+                        Layout.preferredWidth: 120
+                        font.pixelSize: 12
+                        background: Rectangle {
+                            color: closeBtn.hovered ? "#444444" : "#333333"
+                            radius: 4
+                        }
+                        contentItem: Text {
+                            text: closeBtn.text
+                            font: closeBtn.font
+                            color: "#cccccc"
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        onClicked: root.close()
+                        id: closeBtn
+                    }
+                }
+            }
+
+            // Buttons (hidden after success)
+            RowLayout {
+                id: buttonArea
+                Layout.fillWidth: true
+                visible: !root.encryptionSuccess
                 spacing: 12
 
                 Button {
@@ -427,6 +554,14 @@ Dialog {
                     onClicked: {
                         if (!encryptCheckbox.checked) return
 
+                        console.log("DEBUG export inputPath:", JSON.stringify(root.inputPath))
+                        console.log("DEBUG export outputPath:", JSON.stringify(root.outputPath))
+
+                        // Reset state for new encryption
+                        root.encryptionSuccess = false
+                        root.generatedKey = ""
+                        errorText.errMsg = ""
+
                         if (root.usePasswordMode) {
                             var password = passwordField.text.trim()
                             var confirmPassword = confirmPasswordField.text.trim()
@@ -447,6 +582,18 @@ Dialog {
                         }
                     }
                 }
+            }
+
+            // Success for password mode
+            Text {
+                id: successText
+                Layout.fillWidth: true
+                text: qsTr("加密成功 / Encryption successful")
+                visible: root.encryptionSuccess && root.generatedKey.length === 0
+                horizontalAlignment: Text.AlignHCenter
+                font.pixelSize: 13
+                font.bold: true
+                color: "#4CAF50"
             }
         }
     }
@@ -469,23 +616,14 @@ Dialog {
         id: encryptionBridge
 
         onEncryptionFinished: function(keyString) {
-            root.close()
-
-            if (keyString && keyString.length > 0) {
-                var component = Qt.createComponent("KeyStringDialog.qml")
-                if (component.status === Component.Ready) {
-                    var dialog = component.createObject(root, {
-                        keyString: keyString
-                    })
-                    if (dialog) {
-                        dialog.open()
-                    }
-                }
-            }
+            root.encryptionSuccess = true
+            root.generatedKey = keyString || ""
+            console.log("DEBUG encryption finished, key length:", keyString ? keyString.length : 0)
         }
 
         onErrorOccurred: function(error) {
             console.warn("Encryption failed:", error)
+            errorText.errMsg = error
         }
     }
 }

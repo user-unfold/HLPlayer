@@ -1,43 +1,54 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtQuick.Dialogs
+import QtQuick.Window
 
-Dialog {
+Item {
     id: root
-    width: 500
-    height: 240
-    modal: true
-    focus: true
-    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    anchors.fill: parent
+    visible: false
+    z: 9999
 
     property string keyString: ""
+    property var encryptionBridge: null
 
-    readonly property int space1: 8
-    readonly property int space2: 16
-    readonly property int space3: 24
+    signal closed()
 
-    title: qsTr("密钥已生成 (Key Generated)")
+    // Modal overlay
+    Rectangle {
+        anchors.fill: parent
+        color: "#80000000"
+        MouseArea {
+            anchors.fill: parent
+            onClicked: { /* block clicks behind */ }
+        }
+    }
 
-    background: Rectangle {
+    // Dialog card
+    Rectangle {
+        width: 500
+        height: 240
+        anchors.centerIn: parent
         color: "#cc1a1a2e"
         radius: 12
         border.color: "#334FC3F7"
         border.width: 1
-    }
-
-    contentItem: Item {
-        anchors.fill: parent
 
         ColumnLayout {
             anchors.fill: parent
-            anchors.margins: root.space2
-            spacing: root.space2
+            anchors.margins: 16
+            spacing: 16
 
             Text {
-                text: qsTr("请妥善保存此密钥，丢失将无法解密文件 (Please save this key securely, you cannot decrypt files without it)")
+                text: qsTr("密钥已生成 (Key Generated)")
+                font.pixelSize: 16
+                font.bold: true
+                color: "#4FC3F7"
+            }
+
+            Text {
+                text: qsTr("请妥善保存此密钥，丢失将无法解密文件\nPlease save this key securely, you cannot decrypt files without it")
                 font.pixelSize: 12
-                font.family: "IBM Plex Sans"
                 color: "#FFB74D"
                 Layout.fillWidth: true
                 wrapMode: Text.Wrap
@@ -55,8 +66,8 @@ Dialog {
                 Text {
                     id: keyText
                     anchors.fill: parent
-                    anchors.leftMargin: root.space2
-                    anchors.rightMargin: root.space2
+                    anchors.leftMargin: 12
+                    anchors.rightMargin: 12
                     text: root.keyString
                     font.pixelSize: 13
                     font.family: "monospace"
@@ -68,65 +79,63 @@ Dialog {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: {
-                        keyText.selectAll()
-                    }
-                }
-            }
-
-            // Copy button
-            Button {
-                id: copyButton
-                text: qsTr("复制密钥 (Copy Key)")
-                Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: 140
-                font.pixelSize: 12
-                font.family: "IBM Plex Sans"
-                background: Rectangle {
-                    color: copyButton.hovered ? "#3DB5D9" : "#4FC3F7"
-                    radius: 4
-                }
-                contentItem: Text {
-                    text: copyButton.text
-                    font: copyButton.font
-                    color: "#ffffff"
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                onClicked: {
-                    clipboard.text = root.keyString
+                    onClicked: keyText.selectAll()
                 }
             }
 
             Item { Layout.fillHeight: true }
 
-            // Confirm button
-            Button {
-                id: confirmButton
-                text: qsTr("我已保存 (I've saved it)")
+            RowLayout {
                 Layout.alignment: Qt.AlignHCenter
-                Layout.preferredWidth: 140
-                font.pixelSize: 12
-                font.family: "IBM Plex Sans"
-                background: Rectangle {
-                    color: confirmButton.hovered ? "#444444" : "#333333"
-                    radius: 4
+                spacing: 12
+
+                // Copy button
+                Button {
+                    text: qsTr("复制密钥 (Copy Key)")
+                    Layout.preferredWidth: 150
+                    font.pixelSize: 12
+                    background: Rectangle {
+                        color: copyBtn.hovered ? "#3DB5D9" : "#4FC3F7"
+                        radius: 4
+                    }
+                    contentItem: Text {
+                        text: copyBtn.text
+                        font: copyBtn.font
+                        color: "#ffffff"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: {
+                        if (encryptionBridge) {
+                            encryptionBridge.copyToClipboard(root.keyString)
+                        }
+                    }
+                    id: copyBtn
                 }
-                contentItem: Text {
-                    text: confirmButton.text
-                    font: confirmButton.font
-                    color: "#cccccc"
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                onClicked: {
-                    root.close()
+
+                // Confirm button
+                Button {
+                    text: qsTr("我已保存 (I've saved it)")
+                    Layout.preferredWidth: 150
+                    font.pixelSize: 12
+                    background: Rectangle {
+                        color: confirmBtn.hovered ? "#444444" : "#333333"
+                        radius: 4
+                    }
+                    contentItem: Text {
+                        text: confirmBtn.text
+                        font: confirmBtn.font
+                        color: "#cccccc"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    onClicked: {
+                        root.visible = false
+                        root.closed()
+                    }
+                    id: confirmBtn
                 }
             }
         }
-    }
-
-    Clipboard {
-        id: clipboard
     }
 }

@@ -1,6 +1,8 @@
 #include "QMLEncryptionExporter.h"
 #include "EncryptionExporter.h"
 #include <QMetaObject>
+#include <QGuiApplication>
+#include <QClipboard>
 #include <memory>
 
 namespace hlplayer {
@@ -88,6 +90,13 @@ void QMLEncryptionExporter::cancel() {
     impl_->isProcessing = false;
     impl_->lastError = tr("Cancelled by user");
     emit stateChanged();
+}
+
+void QMLEncryptionExporter::copyToClipboard(const QString& text) {
+    QClipboard* clipboard = QGuiApplication::clipboard();
+    if (clipboard) {
+        clipboard->setText(text);
+    }
 }
 
 void QMLEncryptionExporter::handleProgressChanged(double percent) {

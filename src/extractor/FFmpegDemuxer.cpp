@@ -2,6 +2,10 @@
 
 #include <spdlog/spdlog.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "HlvHeader.h"
 #include "KeyManager.h"
 #include "DecryptingAVIOContext.h"
@@ -73,7 +77,17 @@ Result<void> FFmpegDemuxer::open(const std::string& url,
     if (hlplayer::crypto::hasHlvExtension(url) || hlplayer::crypto::isHlvFile(url)) {
         // 1. Read 112-byte header
         FILE* hlvFile = nullptr;
-        fopen_s(&hlvFile, url.c_str(), "rb");
+#ifdef _WIN32
+        int wlen = MultiByteToWideChar(CP_UTF8, 0, url.c_str(), -1, nullptr, 0);
+        if (wlen > 1) {
+            auto* wpath = new wchar_t[static_cast<size_t>(wlen)];
+            MultiByteToWideChar(CP_UTF8, 0, url.c_str(), -1, wpath, wlen);
+            hlvFile = _wfopen(wpath, L"rb");
+            delete[] wpath;
+        }
+#else
+        hlvFile = std::fopen(url.c_str(), "rb");
+#endif
         if (!hlvFile) {
             return Result<void>::error(PlayerError::InvalidURL);
         }
