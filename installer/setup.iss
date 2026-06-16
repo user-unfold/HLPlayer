@@ -44,7 +44,26 @@ Source: "..\resources\icons\video.ico"; DestDir: "{app}"; Flags: ignoreversion
 ; Main executable
 Source: "{#BuildDir}\hlplayer_app.exe"; DestDir: "{app}"; Flags: ignoreversion
 ; All DLLs and subdirectories (Qt plugins, QML modules, etc.)
-Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+; Exclude build artifacts
+Source: "{#BuildDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#BuildDir}\*.exe"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#BuildDir}\platforms\*"; DestDir: "{app}\platforms"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\qml\*"; DestDir: "{app}\qml"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\qmltooling\*"; DestDir: "{app}\qmltooling"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\iconengines\*"; DestDir: "{app}\iconengines"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\imageformats\*"; DestDir: "{app}\imageformats"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\styles\*"; DestDir: "{app}\styles"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\tls\*"; DestDir: "{app}\tls"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\networkinformation\*"; DestDir: "{app}\networkinformation"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\sqldrivers\*"; DestDir: "{app}\sqldrivers"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\generic\*"; DestDir: "{app}\generic"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\geometryloaders\*"; DestDir: "{app}\geometryloaders"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\renderplugins\*"; DestDir: "{app}\renderplugins"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\renderers\*"; DestDir: "{app}\renderers"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\sceneparsers\*"; DestDir: "{app}\sceneparsers"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\platforminputcontexts\*"; DestDir: "{app}\platforminputcontexts"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\translations\*"; DestDir: "{app}\translations"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+Source: "{#BuildDir}\multimedia\*"; DestDir: "{app}\multimedia"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
 
 [Icons]
 ; Start Menu shortcut
