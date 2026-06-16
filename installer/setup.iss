@@ -6,7 +6,7 @@
 #define MyAppPublisher "HLPlayer"
 #define MyAppURL "https://github.com/hlplayer"
 #define MyAppExeName "hlplayer_app.exe"
-#define BuildDir "build\src\app"
+#define BuildDir "..\build\src\app"
 
 [Setup]
 AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
@@ -21,8 +21,6 @@ AllowNoIcons=yes
 ; Output installer to installer\ directory
 OutputDir=installer
 OutputBaseFilename=HLPlayer_Setup_v{#MyAppVersion}
-; Use our custom icon
-SetupIconFile=resources\icons\video.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
@@ -34,7 +32,6 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式 (&Desktop)"; GroupDescription: "附加图标:"; Flags: unchecked
@@ -42,45 +39,12 @@ Name: "hlvassoc"; Description: "关联 .hlv 加密视频文件 (&Associate)"; Gr
 
 [Files]
 ; Application icon (for .hlv file association)
-Source: "resources\icons\video.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\resources\icons\video.ico"; DestDir: "{app}"; Flags: ignoreversion
 
-; Main executable and all DLLs (recursive)
+; Main executable
 Source: "{#BuildDir}\hlplayer_app.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "{#BuildDir}\*.dll"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
-; Qt platform plugins
-Source: "{#BuildDir}\platforms\*.dll"; DestDir: "{app}\platforms"; Flags: ignoreversion
-; Qt style plugins
-Source: "{#BuildDir}\styles\*.dll"; DestDir: "{app}\styles"; Flags: ignoreversion
-; Qt image format plugins
-Source: "{#BuildDir}\imageformats\*.dll"; DestDir: "{app}\imageformats"; Flags: ignoreversion
-; Qt icon engines
-Source: "{#BuildDir}\iconengines\*.dll"; DestDir: "{app}\iconengines"; Flags: ignoreversion
-; Qt TLS backends
-Source: "{#BuildDir}\tls\*.dll"; DestDir: "{app}\tls"; Flags: ignoreversion
-; Qt network information
-Source: "{#BuildDir}\networkinformation\*.dll"; DestDir: "{app}\networkinformation"; Flags: ignoreversion
-; Qt multimedia
-Source: "{#BuildDir}\multimedia\*.dll"; DestDir: "{app}\multimedia"; Flags: ignoreversion
-; Qt SQL drivers
-Source: "{#BuildDir}\sqldrivers\*.dll"; DestDir: "{app}\sqldrivers"; Flags: ignoreversion
-; Qt generic plugins
-Source: "{#BuildDir}\generic\*.dll"; DestDir: "{app}\generic"; Flags: ignoreversion
-; Qt geometry loaders
-Source: "{#BuildDir}\geometryloaders\*.dll"; DestDir: "{app}\geometryloaders"; Flags: ignoreversion
-; Qt render plugins
-Source: "{#BuildDir}\renderplugins\*.dll"; DestDir: "{app}\renderplugins"; Flags: ignoreversion
-; Qt scene parsers
-Source: "{#BuildDir}\sceneparsers\*.dll"; DestDir: "{app}\sceneparsers"; Flags: ignoreversion
-; Qt renderers
-Source: "{#BuildDir}\renderers\*.dll"; DestDir: "{app}\renderers"; Flags: ignoreversion
-; Qt translations
-Source: "{#BuildDir}\translations\*.qm"; DestDir: "{app}\translations"; Flags: ignoreversion
-; QML modules
-Source: "{#BuildDir}\qml\*"; DestDir: "{app}\qml"; Flags: ignoreversion recursesubdirs createallsubdirs
-; QML tooling
-Source: "{#BuildDir}\qmltooling\*.dll"; DestDir: "{app}\qmltooling"; Flags: ignoreversion
-; Platform input contexts (virtual keyboard)
-Source: "{#BuildDir}\platforminputcontexts\*.dll"; DestDir: "{app}\platforminputcontexts"; Flags: ignoreversion
+; All DLLs and subdirectories (Qt plugins, QML modules, etc.)
+Source: "{#BuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [Icons]
 ; Start Menu shortcut
