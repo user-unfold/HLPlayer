@@ -554,9 +554,6 @@ Dialog {
                     onClicked: {
                         if (!encryptCheckbox.checked) return
 
-                        console.log("DEBUG export inputPath:", JSON.stringify(root.inputPath))
-                        console.log("DEBUG export outputPath:", JSON.stringify(root.outputPath))
-
                         // Reset state for new encryption
                         root.encryptionSuccess = false
                         root.generatedKey = ""
@@ -639,7 +636,6 @@ Dialog {
         onEncryptionFinished: function(keyString) {
             root.encryptionSuccess = true
             root.generatedKey = keyString || ""
-            console.log("DEBUG encryption finished, key length:", keyString ? keyString.length : 0)
         }
 
         onErrorOccurred: function(error) {

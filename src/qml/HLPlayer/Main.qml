@@ -278,7 +278,6 @@ ApplicationWindow {
         property bool showError: false
 
         function openWithMode(mode) {
-            console.log("DEBUG openWithMode:", mode)
             keyMode = mode
             showError = false
             inputField.text = ""
@@ -286,9 +285,7 @@ ApplicationWindow {
             inputField.placeholderText = (mode === 1) ? "请输入密码 / Enter password"
                 : "请输入密钥 / Enter key"
             inputField.forceActiveFocus()
-            console.log("DEBUG calling open(), visible before:", visible)
             open()
-            console.log("DEBUG open() done, visible:", visible)
         }
 
         background: Rectangle {
@@ -366,9 +363,7 @@ ApplicationWindow {
     Connections {
         target: player
         function onPasswordPromptRequested(filePath, keyMode) {
-            console.log("DEBUG passwordPromptRequested:", filePath, "keyMode:", keyMode)
             passwordPromptDialog.openWithMode(keyMode)
-            console.log("DEBUG passwordPromptDialog visible:", passwordPromptDialog.visible, "opened:", passwordPromptDialog.opened)
         }
     }
 
@@ -1998,7 +1993,6 @@ onClicked: {
                         ToolTip.text: qsTr("加密导出当前视频 (Encrypt Export)")
                         onClicked: {
                             var path = player.source
-                            console.log("DEBUG source raw:", JSON.stringify(path))
                             if (path) {
                                 path = path.toString()
                                 if (path.startsWith("file:///"))
@@ -2006,7 +2000,6 @@ onClicked: {
                                 else if (path.startsWith("file://"))
                                     path = decodeURIComponent(path.substring(7))
                             }
-                            console.log("DEBUG inputPath:", JSON.stringify(path))
                             encryptExportDialog.inputPath = path || ""
                             encryptExportDialog.open()
                         }
