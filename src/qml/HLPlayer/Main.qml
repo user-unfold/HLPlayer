@@ -371,7 +371,7 @@ ApplicationWindow {
         id: asrBridge
         Component.onCompleted: {
             asrBridge.initFromPlayer(player)
-            asrBridge.setModelDirectory("D:/HLPlayer/models")
+            asrBridge.setModelDirectory(appDir + "/models")
             console.log("ASR Bridge initialized, enabled:", enabled)
         }
     }
@@ -622,7 +622,7 @@ ApplicationWindow {
                         visible: root.asrMode !== "off" && (asrBridge.currentSubtitleText !== "" || asrBridge.translatedSubtitleText !== "" || asrBridge.modelLoadingStatus !== "")
                         opacity: visible ? 1.0 : 0.0
                         Behavior on opacity { NumberAnimation { duration: 200 } }
-                        source: "file:///D:/HLPlayer/src/asr/qml/SubtitleOverlay.qml"
+                        source: "qrc:/HLPlayer/HLPlayer/SubtitleOverlay.qml"
 
                         Binding { target: subtitleOverlayLoader.item; property: "subtitleText";   value: asrBridge.modelLoadingStatus || asrBridge.currentSubtitleText || "" }
                         Binding { target: subtitleOverlayLoader.item; property: "translatedText"; value: asrBridge.translatedSubtitleText || "" }
@@ -1138,7 +1138,8 @@ onClicked: {
                                 }
                                 onClicked: {
                                     console.log("Camera: Creating CameraRecordingPage...");
-                                    var component = Qt.createComponent("file:///D:/HLPlayer/src/camera/qml/CameraRecordingPage.qml");
+                                    var compPath = appDir + "/qml/camera/CameraRecordingPage.qml"
+                                    var component = Qt.createComponent(compPath)
                                     if (component.status === Component.Error) {
                                         console.error("Camera: Component error:", component.errorString());
                                         showToast("Failed: " + component.errorString());
@@ -1176,7 +1177,8 @@ onClicked: {
                                 }
                                 onClicked: {
                                     console.log("Streaming: Creating StreamingPage...");
-                                    var component = Qt.createComponent("file:///D:/HLPlayer/src/camera/qml/StreamingPage.qml");
+                                    var compPath = appDir + "/qml/camera/StreamingPage.qml"
+                                    var component = Qt.createComponent(compPath)
                                     if (component.status === Component.Error) {
                                         console.error("Streaming: Component error:", component.errorString());
                                         showToast("Failed: " + component.errorString());

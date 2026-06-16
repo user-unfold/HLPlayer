@@ -49,11 +49,10 @@ int main(int argc, char *argv[])
     QString appDir = QCoreApplication::applicationDirPath();
     engine.addImportPath(appDir);
     engine.addImportPath(appDir + "/qml");
-    engine.addImportPath(appDir + "/../qml");
-    engine.addImportPath("D:/HLPlayer/build/src/qml");
 
-    // Expose source root so QML can reference files outside the build tree
-    engine.rootContext()->setContextProperty("sourceRoot", "D:/HLPlayer");
+    // Expose app directory to QML (replaces hardcoded D:/HLPlayer)
+    engine.rootContext()->setContextProperty("sourceRoot", appDir);
+    engine.rootContext()->setContextProperty("appDir", appDir);
 
 #ifdef BUILD_QML
     auto* cameraProvider = new hlplayer::CameraPreviewProvider();
@@ -61,8 +60,14 @@ int main(int argc, char *argv[])
     hlplayer::PreviewRenderer::setEngineProvider(cameraProvider);
 #endif
 
-    const QString mainQmlPath = appDir + "/../qml/HLPlayer/HLPlayer/Main.qml";
-    QQmlComponent component(&engine, QUrl::fromLocalFile(mainQmlPath));
+    // Try QRC first (installed), then file path (dev build)
+    QUrl mainUrl(QStringLiteral("qrc:/qt-project.org/imports/HLPlayer/HLPlayer/Main.qml"));
+    QQmlComponent component(&engine, mainUrl);
+    if (component.isError()) {
+        // Fallback: load from filesystem for development
+        QUrl devUrl = QUrl::fromLocalFile(appDir + "/../qml/HLPlayer/HLPlayer/Main.qml");
+        component.loadUrl(devUrl);
+    }
     if (component.isError()) {
         fprintf(stderr, "FATAL: QML component errors:\n");
         for (const auto& e : component.errors())

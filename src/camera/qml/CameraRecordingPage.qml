@@ -325,7 +325,7 @@ ApplicationWindow {
                             String(now.getHours()).padStart(2, '0') + "-" +
                             String(now.getMinutes()).padStart(2, '0') + "-" +
                             String(now.getSeconds()).padStart(2, '0')
-                        var outputPath = "D:/HLPlayer/recordings/recording_" + timestamp + ".mp4"
+                        var outputPath = appDir + "/recordings/recording_" + timestamp + ".mp4"
                         var streamUrl = streamServerField.text.trim()
                         var streamKey = streamKeyField.text.trim()
 

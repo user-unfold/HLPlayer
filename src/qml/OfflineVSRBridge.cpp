@@ -584,7 +584,7 @@ void OfflineVSRBridge::startProcessing() {
 #ifdef HLPLAYER_VSR_ENABLED
         NcnnSRConfig vsrConfig;
         {
-            std::string modelBase = "D:/HLPlayer/models/";
+            std::string modelBase = QCoreApplication::applicationDirPath().toStdString() + "/models/";
             switch (scaleFactor) {
                 case 2: modelBase += "realesr-animevideov3-x2"; break;
                 case 3: modelBase += "realesr-animevideov3-x3"; break;
